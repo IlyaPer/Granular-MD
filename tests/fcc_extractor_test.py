@@ -306,7 +306,7 @@ class TestGranulation(unittest.TestCase):
         self.L.file("tests/TEST_granulate.in")
 
         self.communicator = LammpsCommunicator(self.L)
-        self.xlo, self.xhi, self.ylo, self.yhi, self.zlo, self.zhi = (
+        self.xlo, self.xhi, self.ylo, self.yhi, self.zlo, self.zhi, self.pbc = (
             self.communicator.__get_box_size__()
         )
         self.solver = FccCellsExtractor(self.communicator, A, lower_threshold=-2.5)
@@ -365,7 +365,7 @@ class TestGranulation(unittest.TestCase):
         self.assertEqual(
             len(self.solver._get_cells_to_granulate()) > 2,
             True,
-            f"There should be no enough regions to be approximated, found only {len(self.solver._get_cells_to_approximate())}",
+            f"There should be no enough regions to be GRANULATED, found only {len(self.solver._get_cells_to_granulate())}",
         )
 
         # self.assertEqual(
@@ -381,15 +381,14 @@ class TestGranulation(unittest.TestCase):
 
         self.dc.accelerate(self.L)
 
-        self.assertEqual(1, 1)
 
-        # for borders_of_grained_cell in self.dc._get_debug_info():
-        #     ids_in_grained_cells = self.dc.communicator._extract_ids_from_block(borders_of_grained_cell)
-        #     self.assertEqual(
-        #         len(ids_in_grained_cells),
-        #         4,
-        #         f"incorrect number of atoms in grained cells. Should be 4, found {len(ids_in_grained_cells)}",
-        #     )
+        for borders_of_grained_cell in self.dc._get_debug_info():
+            ids_in_grained_cells = self.dc.communicator._extract_ids_from_block(borders_of_grained_cell)
+            self.assertEqual(
+                len(ids_in_grained_cells),
+                14,
+                f"incorrect number of atoms in grained cells. Should be 4, found {len(ids_in_grained_cells)}",
+            )
         # TODO: law of masses, velocities distribution!!!
 
     def test_granulation(self):

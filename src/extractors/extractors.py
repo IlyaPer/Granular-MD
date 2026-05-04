@@ -196,21 +196,21 @@ class FccCellsExtractor(Extractor):
     def extract_interesting_regions(
         self,
     ):
-        self.xlo, self.xhi, self.ylo, self.yhi, self.zlo, self.zhi = (
+        self.xlo, self.xhi, self.ylo, self.yhi, self.zlo, self.zhi, self.pbc = (
             self.lammps_extractor.__get_box_size__()
         )
         
         # Align the grid to the lattice to prevent thermal fluctuations from shifting the cells
-        self.xlo = np.round(self.xlo / self.lattice_constant) * self.lattice_constant
-        self.ylo = np.round(self.ylo / self.lattice_constant) * self.lattice_constant
-        self.zlo = np.round(self.zlo / self.lattice_constant) * self.lattice_constant
+        # self.xlo = self.xlo  np.round(self.xlo / self.lattice_constant) * self.lattice_constant
+        # self.ylo =  np.round(self.ylo / self.lattice_constant) * self.lattice_constant
+        # self.zlo = np.round(self.zlo / self.lattice_constant) * self.lattice_constant
 
         self.clear_extractor()
         cell_size = self.lattice_constant * 2.0
 
-        nx = int(np.ceil((self.xhi - self.xlo) / cell_size))
-        ny = int(np.ceil((self.yhi - self.ylo) / cell_size))
-        nz = int(np.ceil((self.zhi - self.zlo) / cell_size))
+        nx = int(np.round((self.xhi - self.xlo) / cell_size))
+        ny = int(np.round((self.yhi - self.ylo) / cell_size))
+        nz = int(np.round((self.zhi - self.zlo) / cell_size))
 
         # Split space to cubes with edge cell_size * SCALE_FACTOR
         for ix in range(nx):
@@ -225,7 +225,6 @@ class FccCellsExtractor(Extractor):
         """
         Receives the identificators of atoms inside the mega cell
         """
-
         positions = (
             self.lammps_extractor.__get_positions__()
         )  # Should be sorted by id or not?
@@ -237,25 +236,35 @@ class FccCellsExtractor(Extractor):
         z_exact_min = self.zlo + iz * self.cell_size
         z_exact_max = z_exact_min + self.cell_size
 
-        x_min = x_exact_min - 0.1
-        x_max = x_exact_max + 0.2
-        y_min = y_exact_min - 0.1
-        y_max = y_exact_max + 0.2
-        z_min = z_exact_min - 0.1
-        z_max = z_exact_max + 0.2
+        mask = ()
+        low, high = 0.0, 12
+        for _ in range(40):
+            mid = (low + high) / 2
 
-        # collects atoms in the cell
-        mask = (
-            (positions[:, 0] >= x_min) &
-            (positions[:, 0] <= x_max) &
-            (positions[:, 1] >= y_min) &
-            (positions[:, 1] <= y_max) &
-            (positions[:, 2] >= z_min) &
-            (positions[:, 2] <= z_max)
-        )
+            x_min = x_exact_min - 0.1
+            x_max = x_exact_max + 0.1
+            y_min = y_exact_min - 0.1 * mid
+            y_max = y_exact_max + 0.1 * mid
+            z_min = z_exact_min 
+            z_max = z_exact_max + 0.1
+
+            # collects atoms in the cell
+            mask = (
+                (positions[:, 0] >= x_min) &
+                (positions[:, 0] <= x_max) &
+                (positions[:, 1] >= y_min) &
+                (positions[:, 1] <= y_max) &
+                (positions[:, 2] >= z_min) &
+                (positions[:, 2] <= z_max)
+            )
+            if np.sum(mask) >= 14:
+                high = mid 
+            else:
+                low = mid
+
         identificators = self.lammps_extractor.__get_atom_identificators__()[mask]
 
-        return (x_exact_min, x_exact_max, y_exact_min, y_exact_max, z_exact_min, z_exact_max), identificators
+        return (x_min, x_max, y_min, y_max, z_min, z_max), identificators
 
     def _process_single_cell(self, atom_identificators, cell):
         """
