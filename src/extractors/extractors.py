@@ -148,8 +148,8 @@ class FccCellsExtractor(Extractor):
         lammps_extractor: LammpsCommunicator,
         lattice_contant: float,
         lattice_constant_cg=7.04,
-        lower_threshold=-3.0,
-        upper_threshold=-0.7,
+        lower_threshold=-3.0, # approximates
+        upper_threshold=-0.7, # granulates
     ):
         super().__init__()
 
@@ -237,16 +237,16 @@ class FccCellsExtractor(Extractor):
         z_exact_max = z_exact_min + self.cell_size
 
         mask = ()
-        low, high = 0.0, 12
-        for _ in range(40):
+        low, high = 0.0, 20
+        for _ in range(80):
             mid = (low + high) / 2
 
-            x_min = x_exact_min - 0.1
-            x_max = x_exact_max + 0.1
+            x_min = x_exact_min - 0.1 * mid
+            x_max = x_exact_max + 0.1 * mid
             y_min = y_exact_min - 0.1 * mid
             y_max = y_exact_max + 0.1 * mid
-            z_min = z_exact_min 
-            z_max = z_exact_max + 0.1
+            z_min = z_exact_min - 0.1 * mid 
+            z_max = z_exact_max + 0.1 * mid
 
             # collects atoms in the cell
             mask = (
@@ -262,6 +262,7 @@ class FccCellsExtractor(Extractor):
             else:
                 low = mid
 
+
         identificators = self.lammps_extractor.__get_atom_identificators__()[mask]
 
         return (x_min, x_max, y_min, y_max, z_min, z_max), identificators
@@ -276,14 +277,16 @@ class FccCellsExtractor(Extractor):
         """
         type_of_cell = SIMPLE
         number_of_atoms_in_cell = len(atom_identificators)
-        if number_of_atoms_in_cell > 30:
+        if number_of_atoms_in_cell == 32:
+            self.cells_to_approximate.append((cell, atom_identificators))
+        # if number_of_atoms_in_cell > 30:
 
-            if self._solver_rule(atom_identificators, to_approximate=True):
-                self.cells_to_approximate.append((cell, atom_identificators))
-        elif number_of_atoms_in_cell > 10 and number_of_atoms_in_cell < 15:
-            type_of_cell = GRAINED
-            if self._solver_rule(atom_identificators, to_granulate=True):
-                self.cells_to_granulate.append((cell, atom_identificators))
+        #     if self._solver_rule(atom_identificators, to_approximate=True):
+        #         self.cells_to_approximate.append((cell, atom_identificators))
+        # elif number_of_atoms_in_cell > 10 and number_of_atoms_in_cell < 15:
+        #     type_of_cell = GRAINED
+        #     if self._solver_rule(atom_identificators, to_granulate=True):
+        #         self.cells_to_granulate.append((cell, atom_identificators))
         # elif number_of_atoms_in_cell > 32:
         #     new_atom_identificators = self._extract_extra_atoms(atom_identificators, is_crack=False)
         #     if self._solver_rule(atom_identificators, to_approximate=True):

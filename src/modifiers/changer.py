@@ -7,6 +7,8 @@ import numpy as np
 from src.extractors.extractors import FccCellsExtractor
 from src.utils.utils import LammpsCommunicator
 
+TIME_WINDOW=10
+
 class DynamicChanger():
     def __init__(self, communicator : LammpsCommunicator, extractor : FccCellsExtractor, lattice_constant : float, lattice_constant_cg : float, baby_mode=False):
         self.extractor = extractor
@@ -16,19 +18,39 @@ class DynamicChanger():
         self.lattice_constant = lattice_constant
         self.__debug_grained_cells = []
         self.__DEBUG_MODE__ = True
+        
+        self.snapshots_positions = []
+        self.iter_number = 0
 
     def set_lammps(self, lammps_instance):
         self.communicator = lammps_instance
     
     def _lammps_execute(self):
         return self.communicator.get_instance()
+    
+    def init_cells(self, lammps_instance):
+        self.extractor.set_communicator(lammps_instance)
+        # self.extractor.get_communicator().set_positions(np.mean(np.array(self.snapshots_positions), axis=0))
+
+        self.extractor.extract_interesting_regions()
+        self.tree_ids_atoms = 
 
     def accelerate(self, lammps_instance):
         """
         affirmative. execute acceleration.
         """
+        # if self.iter_number != TIME_WINDOW:
+
+            # self.snapshots_positions.append(self.communicator.__get_positions__())
+            # self.iter_number += 1
+            # return
+
+        self.iter_number = 0
         self.extractor.set_communicator(lammps_instance)
+        # self.extractor.get_communicator().set_positions(np.mean(np.array(self.snapshots_positions), axis=0))
+
         self.extractor.extract_interesting_regions()
+
         cells = self.extractor
         
         for cell_to_granulate in self.extractor._get_cells_to_granulate():
@@ -50,7 +72,6 @@ class DynamicChanger():
         self._lammps_execute().command("group cell_atoms region kill")
 
         lenj = len(self.communicator.__get_atom_identificators__())
-        print(f'Max len: {lenj}')
         self._lammps_execute().command(f"lattice fcc {self.lattice_constant_cg}")
         # velocities_of_the_cell = self.communicator.__get_velocities__()[atom_ids]
         atom_ids = self.communicator._extract_ids_from_block((x_min- 1e-3, x_max + 1e-3, y_min - 1e-3, y_max +1e-3, z_min - 1e-3, z_max+1e-3))
@@ -113,6 +134,7 @@ class DynamicChanger():
             self._lammps_execute().command(cmd)
         self._lammps_execute().command("group cell_atoms delete")
         self._lammps_execute().command("region kill delete")
+        self._lammps_execute().command("write_dump all custom TEST_APPROXIMATED_CRACK_dump_accurate.crack_GRAIN.lammpstrj id type x y z modify append yes")
         # self._lammps_execute().command("delete_atoms overlap 0.01 all all")
         # return
         # if self.__DEBUG_MODE__:

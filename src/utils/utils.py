@@ -7,16 +7,22 @@ class LammpsCommunicator():
     def __init__(self, lammps_instance : lammps.lammps) -> None:
         self.lammps_instance = lammps_instance
         self.nlocal = lammps_instance.extract_global("nlocal")
+        self.mean_positions = np.array([])
 
     def get_instance(self,) -> lammps.lammps:
         return self.lammps_instance
+    
+    def set_positions(self, mean_positions : np.ndarray):
+        self.mean_positions = mean_positions
 
-    def __get_positions__(self,) -> np.ndarray:
+    def __get_positions__(self, current_snapshot=False) -> np.ndarray:
 
         # positions = np.array(self.lammps_instance.gather_atoms("x", 1, 3))  # sorted and wrapped already?
 
-        raw_velocities = self.lammps_instance.numpy.extract_atom("x")[:self.nlocal]
-        sort_indices = np.argsort(self.__get_atom_identificators__())
+        if current_snapshot or len(self.mean_positions) == 0:
+            raw_velocities = self.lammps_instance.numpy.extract_atom("x")[:self.nlocal]
+            sort_indices = np.argsort(self.__get_atom_identificators__())
+            return raw_velocities[sort_indices]
         # raw_pos = np.array(self.lammps_instance.gather_atoms("x", 1, 3)).reshape(126, 3)
         # image_flags = self.lammps_instance.extract_atom("image", 2)
         # boxlo, boxhi, xy, yz, xz, periodicity, box_change = self.lammps_instance.extract_box()
@@ -30,7 +36,7 @@ class LammpsCommunicator():
         # # 3. Calculate wrapped coordinates: x_wrapped = x_unwrapped - (image_flag * box_length)
         # x_wrapped = x_unwrapped - images * box_length
         # sort_indices = np.argsort(self.__get_atom_identificators__())
-        return raw_velocities[sort_indices]
+        return self.mean_positions
 
     # def __get_positions__(self) -> np.ndarray:
     #     image_flags = self.lammps_instance.extract_atom("image", 2)
@@ -77,12 +83,12 @@ class LammpsCommunicator():
     
     def __get_box_size__(self,) -> tuple:
         box = self.lammps_instance.extract_box() # TODO: MINIMAL POSITIONS INSTEAD OF BOX
-        xlo, xhi = box[0][0], box[1][0]          # TODO: WHY IS IT SHIT WITH SHRINK-WRAPPED?
-        ylo, yhi = box[0][1], box[1][1]
-        zlo, zhi = box[0][2], box[1][2]
-        # xlo, xhi = np.min(self.__get_positions__()[:,0]) -1e-3, np.max(self.__get_positions__()[:,0]) +1e-3*2
-        # ylo, yhi = np.min(self.__get_positions__()[:,1])-1e-3, np.max(self.__get_positions__()[:,1])+1e-3*2
-        # zlo, zhi = np.min(self.__get_positions__()[:,2])-1e-3, np.max(self.__get_positions__()[:,2])+1e-3*2
+        # xlo, xhi = box[0][0], box[1][0]          # TODO: WHY IS IT SHIT WITH SHRINK-WRAPPED?
+        # ylo, yhi = box[0][1], box[1][1]
+        # zlo, zhi = box[0][2], box[1][2]
+        xlo, xhi = np.min(self.__get_positions__()[:,0]), np.max(self.__get_positions__()[:,0]) 
+        ylo, yhi = np.min(self.__get_positions__()[:,1]), np.max(self.__get_positions__()[:,1])
+        zlo, zhi = np.min(self.__get_positions__()[:,2]), np.max(self.__get_positions__()[:,2])
         return xlo, xhi, ylo, yhi, zlo, zhi, box[5]
     
     def __get_pe_per_atom__(self,) -> tuple:

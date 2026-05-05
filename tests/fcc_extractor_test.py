@@ -347,7 +347,7 @@ class TestGranulation(unittest.TestCase):
             self.solver._solver_rule(ids_of_the_cell, to_approximate=True), True
         )
 
-    def test_approximation(self):
+    def test_granulation(self):
         self.dc.accelerate(self.L)
 
         L2 = self.dc._lammps_execute()
@@ -391,27 +391,60 @@ class TestGranulation(unittest.TestCase):
             )
         # TODO: law of masses, velocities distribution!!!
 
-    def test_granulation(self):
-        # TEST WHERE ALL REGIONS ARE TO BE APPROXIMATED
 
-        # self.L.command("run 1000")
+class TestGranulationFluctuations(unittest.TestCase):
 
-        self.dc.accelerate(self.L)
+    def setUp(self):
+        SCALE_FACTOR = 2
 
-        self.solver.extract_interesting_regions()
+        sigma_for_nickel = 3.52 * (58.69 / 2.5) ** (-1)
+        SIGMA = sigma_for_nickel
+        A = 3.52
 
-        self.assertEqual(
-            len(self.solver._get_cells_to_approximate()) > 10,
-            True,
-            f"There should be approximated regions, found {len(self.solver._get_cells_to_approximate())}",
+        SIGMA_CG, A_CG, EPSILON_CG, ATOMIC_UNIT_MASS_CG = compute_params_CG(
+            SCALE_FACTOR
         )
 
-        for _, ids in self.solver.debug_cells_grained:
-            self.assertEqual(
-                len(ids) <= 4,
-                True,
-                f"incorrect number of atoms in grained cells. Should be no more than 4, found {4}",
-            )
+        self.L = lammps()
+
+        self.L.file("tests/TEST_granulate_with_fluctuations.in")
+
+        self.communicator = LammpsCommunicator(self.L)
+        self.xlo, self.xhi, self.ylo, self.yhi, self.zlo, self.zhi, self.pbc = (
+            self.communicator.__get_box_size__()
+        )
+        self.solver = FccCellsExtractor(self.communicator, A, lower_threshold=-2.5, upper_threshold=-1.7)
+        self.dc = DynamicChanger(self.communicator, self.solver, A, A_CG, baby_mode=False)
+
+        # block = f"""
+        # pair_coeff      1 2 20 2.28
+        # pair_coeff      2 2 {EPSILON_CG} {SIGMA_CG}
+        # mass            2 {ATOMIC_UNIT_MASS_CG}
+        # lattice         fcc {A_CG}
+        # """
+
+        # self.L.commands_string(block)
+
+        logging.info("The simulation started successfully.")
+        iter = 0
+
+    def test_granulation_with_fluctuations(self):
+        
+
+        for i in range(50):
+
+            self.L.command("run 250")
+            self.dc.accelerate(self.L)
+            self.L.command("reset_atoms id")
+
+            if len(self.solver._get_cells_to_granulate()) > 0:
+                for borders_of_grained_cell in self.dc._get_debug_info():
+                    ids_in_grained_cells = self.dc.communicator._extract_ids_from_block(borders_of_grained_cell)
+                    self.assertEqual(
+                        len(ids_in_grained_cells),
+                        14,
+                        f"incorrect number of atoms in grained cells. Should be 4, found {len(ids_in_grained_cells)}",
+                    )
 
 
 if __name__ == "__main__":
