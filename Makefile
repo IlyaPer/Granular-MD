@@ -5,7 +5,7 @@ install:
 # 	pip install -r requirements-dev.txt  # для разработки 
 
 test:
-	python -m unittest tests/test_extractor.py
+	python -m unittest tests.test_cg_framework
 
 lint:
 	flake8 src/ tests/

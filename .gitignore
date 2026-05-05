@@ -6,3 +6,5 @@ __pycache__/
 *.alloy
 .env
 settings.json
+docs/
+.cursorrules

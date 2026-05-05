@@ -1,0 +1,133 @@
+{
+  "experiment_name": "accelerate",
+  "start_time": "2026-05-05T15:29:02.811080",
+  "end_time": "2026-05-05T15:29:05.605603",
+  "metrics": [
+    {
+      "timestamp": "2026-05-05T15:29:02.811155",
+      "timestamp_sec": 1777984142.811155,
+      "iteration": 0,
+      "label": "before_step_0",
+      "memory_rss_mb": 84.70703125,
+      "memory_vms_mb": 701.66796875,
+      "memory_uss_mb": 48.0703125,
+      "memory_pss_mb": 64.3115234375,
+      "memory_shared_mb": 41.875,
+      "swap_mb": 0.0,
+      "cpu_percent": 0.0,
+      "cpu_user_sec": 4.54,
+      "cpu_system_sec": 0.91,
+      "num_threads": 13,
+      "num_fds": 48,
+      "system_memory_percent": 1.1235553363308626,
+      "system_memory_available_mb": 5671.0234375,
+      "extra_info": null,
+      "gc_collections": 3,
+      "top_objects": [
+        {
+          "size_kb": 0.61328125,
+          "count": 11,
+          "traceback": "/home/artem/side_things/Multiscale/fast-lammps/build/monitor.py:76"
+        },
+        {
+          "size_kb": 0.609375,
+          "count": 6,
+          "traceback": "<string>:1"
+        },
+        {
+          "size_kb": 0.390625,
+          "count": 1,
+          "traceback": "/home/artem/side_things/Multiscale/fast-lammps/build/monitor.py:42"
+        },
+        {
+          "size_kb": 0.3125,
+          "count": 10,
+          "traceback": "/home/artem/.pyenv/versions/fast_env/lib/python3.11/site-packages/psutil/_pslinux.py:1880"
+        },
+        {
+          "size_kb": 0.3125,
+          "count": 2,
+          "traceback": "/home/artem/.pyenv/versions/3.11.7/lib/python3.11/tracemalloc.py:560"
+        },
+        {
+          "size_kb": 0.3125,
+          "count": 2,
+          "traceback": "/home/artem/.pyenv/versions/3.11.7/lib/python3.11/tracemalloc.py:423"
+        },
+        {
+          "size_kb": 0.109375,
+          "count": 2,
+          "traceback": "/home/artem/.pyenv/versions/fast_env/lib/python3.11/site-packages/psutil/_pslinux.py:317"
+        },
+        {
+          "size_kb": 0.0732421875,
+          "count": 1,
+          "traceback": "/home/artem/side_things/Multiscale/fast-lammps/build/monitor.py:79"
+        },
+        {
+          "size_kb": 0.0732421875,
+          "count": 1,
+          "traceback": "/home/artem/side_things/Multiscale/fast-lammps/build/monitor.py:43"
+        },
+        {
+          "size_kb": 0.0703125,
+          "count": 1,
+          "traceback": "/home/artem/.pyenv/versions/fast_env/lib/python3.11/site-packages/psutil/_common.py:682"
+        }
+      ]
+    },
+    {
+      "timestamp": "2026-05-05T15:29:05.595302",
+      "timestamp_sec": 1777984145.595302,
+      "iteration": 1,
+      "label": "after_step_1",
+      "memory_rss_mb": 138.18359375,
+      "memory_vms_mb": 758.76171875,
+      "memory_uss_mb": 99.59765625,
+      "memory_pss_mb": 116.8046875,
+      "memory_shared_mb": 43.875,
+      "swap_mb": 0.0,
+      "cpu_percent": 99.8,
+      "cpu_user_sec": 7.23,
+      "cpu_system_sec": 1.0,
+      "num_threads": 13,
+      "num_fds": 49,
+      "system_memory_percent": 1.8328692655155299,
+      "system_memory_available_mb": 5599.77734375,
+      "extra_info": null
+    }
+  ],
+  "gc_stats": [
+    {
+      "iteration": 0,
+      "timestamp": "2026-05-05T15:29:02.811155",
+      "collections": [
+        {
+          "collections": 71,
+          "collected": 210,
+          "uncollectable": 0
+        },
+        {
+          "collections": 6,
+          "collected": 188,
+          "uncollectable": 0
+        },
+        {
+          "collections": 0,
+          "collected": 0,
+          "uncollectable": 0
+        }
+      ]
+    }
+  ],
+  "summary_stats": {
+    "memory_peak_mb": 138.18359375,
+    "memory_min_mb": 84.70703125,
+    "memory_avg_mb": 111.4453125,
+    "memory_std_mb": 26.73828125,
+    "memory_final_mb": 138.18359375,
+    "memory_start_mb": 84.70703125,
+    "memory_increase_mb": 53.4765625,
+    "total_iterations": 2
+  }
+}

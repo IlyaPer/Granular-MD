@@ -1,26 +1,10 @@
 import json
-import time
 import psutil
 import os
 import gc
 import tracemalloc
 from datetime import datetime
 import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-from matplotlib.patches import Rectangle
-import warnings
-
-# Suppress warnings globally for cleaner output
-warnings.filterwarnings('ignore')
-
-sns.set_style("whitegrid")
-sns.set_palette("husl")
-plt.rcParams['figure.figsize'] = (14, 8)
-plt.rcParams['font.size'] = 12
-plt.rcParams['axes.titlesize'] = 14
-plt.rcParams['axes.labelsize'] = 12
 
 class MemoryProfiler:
     """  Memory profiler for Python scripts with detailed tracking"""
@@ -168,6 +152,21 @@ class MemoryProfiler:
 
 def create_beautiful_plot(metrics_file, output_image='memory_analysis.png'):
     """Create a beautiful plot from saved metrics"""
+    import warnings
+
+    warnings.filterwarnings('ignore')
+    import matplotlib
+    matplotlib.use("Agg")
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    sns.set_style("whitegrid")
+    sns.set_palette("husl")
+    plt.rcParams['figure.figsize'] = (14, 8)
+    plt.rcParams['font.size'] = 12
+    plt.rcParams['axes.titlesize'] = 14
+    plt.rcParams['axes.labelsize'] = 12
     
     # Load data
     with open(metrics_file, 'r') as f:
@@ -293,7 +292,7 @@ def create_beautiful_plot(metrics_file, output_image='memory_analysis.png'):
     │    {stats['total_iterations']:>8d}                 │
     └─────────────────────────────────────────┘
     
-    📌 Additional Info:
+    Additional Info:
     • Experiment: {data['experiment_name']}
     • Start: {data['start_time'][:19] if data['start_time'] else 'N/A'}
     • End: {data['end_time'][:19]}
@@ -309,6 +308,6 @@ def create_beautiful_plot(metrics_file, output_image='memory_analysis.png'):
     plt.tight_layout()
     plt.savefig(output_image, dpi=150, bbox_inches='tight')
     print(f"Plot saved to {output_image}")
-    plt.show()
+    plt.close(fig)
     
     return fig
