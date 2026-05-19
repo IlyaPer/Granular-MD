@@ -1,4 +1,4 @@
-from tarfile import data_filter
+import enum
 from typing import override
 
 import numpy as np
@@ -9,13 +9,7 @@ from ase import units
 import os
 from ase.io import write
 from sklearn.cluster import MeanShift
-from scipy.ndimage import center_of_mass
-from ovito.io.lammps import lammps_to_ovito
-from ovito.modifiers import CommonNeighborAnalysisModifier
-from ovito.modifiers import PolyhedralTemplateMatchingModifier
-from k_means_constrained import KMeansConstrained
 from ase.build import bulk
-from scipy.spatial import distance
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -26,9 +20,23 @@ SIMPLE = 0
 CRACK = 1
 ROGUE_CELL = 2
 GRAINED = 3
+
+NUMBER_OF_ATOMS_IN_FCC_CELL = 4
+
+APPROXIMATE = -1897398
+GRANULATE = 23920932
+INFERENCE = 999
+RANDOM_CONDITION = 28383829
 logger = logging.getLogger(__name__)
 
 plt.close()
+
+from enum import Enum
+import random
+
+class Condition(Enum):
+    RAND = 1
+    POTENTIAL_ENERGY = 2
 
 
 class ExampleLayerExtractor(Extractor):
@@ -147,15 +155,18 @@ class FccCellsExtractor(Extractor):
         self,
         lammps_extractor: LammpsCommunicator,
         lattice_contant: float,
+        scale_factor : int,
         lattice_constant_cg=7.04,
-        lower_threshold=-3.0, # approximates
+        lower_threshold=-2.5, # approximates
         upper_threshold=-0.7, # granulates
+        smoke_test = INFERENCE,
     ):
         super().__init__()
 
         from ase.build import bulk
 
         ni = bulk("Ni", "fcc", a=3.52, cubic=True)
+        self.scale_factor = scale_factor
 
         self.model_fcc_positions = ni.repeat((2, 2, 2)).get_positions()
         self.lammps_extractor = lammps_extractor
@@ -163,6 +174,7 @@ class FccCellsExtractor(Extractor):
         ni = bulk("Ni", "fcc", a=3.52 * 2, cubic=True)
         self.model_mega_fcc_positions = ni.repeat((1, 1, 1)).get_positions()
         self.lattice_constant = lattice_contant
+        a = lattice_contant
 
         self.cell_size = (
             self.lattice_constant * 2.0
@@ -179,18 +191,250 @@ class FccCellsExtractor(Extractor):
         self.cells_to_granulate = []
         self.debug_cells_grained = []
 
+        self.basis = np.array([
+            [a/2, 0, 0],
+            [0, a/2, 0],
+            [0, 0, a/2]
+        ])
+
+        self.template_of_filling = np.array([
+                                [0, 0, 0],
+                                [2, 2, 0],
+                                [2, 0, 2],
+                                [0, 2, 2],
+                                [4, 0, 0],
+                                [4, 2, 2],
+                                [6, 2, 0],
+                                [6, 0, 2],
+                                [0, 4, 0],
+                                [2, 4, 2],
+                                [4, 4, 0],
+                                [6, 4, 2],
+                                [2, 6, 0],
+                                [0, 6, 2],
+                                [4, 6, 2],
+                                [6, 6, 0],
+                                [0, 0, 4],
+                                [2, 2, 4],
+                                [4, 0, 4],
+                                [6, 2, 4],
+                                [0, 4, 4],
+                                [4, 4, 4],
+                                [2, 6, 4],
+                                [6, 6, 4],
+                                [2, 0, 6],
+                                [0, 2, 6],
+                                [4, 2, 6],
+                                [6, 0, 6],
+                                [2, 4, 6],
+                                [6, 4, 6],
+                                [0, 6, 6],
+                                [4, 6, 6]])
+
+        self.smoke_test = smoke_test
+
+        self.z_group_decomposition = None
+
+    def __debug_info__(self,):
+        atom_counts = [item[0] for item in self.debug_cells_grained]
+        pe_values = [item[1] for item in self.debug_cells_grained]
+        
+        fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+        axes[0].hist(atom_counts, bins=20, edgecolor='black', alpha=0.8)
+        axes[0].axvline(x=32, color='red', linestyle='--', label='Ideal FCC (32 atoms)')
+        axes[0].axvline(x=28, color='orange', linestyle=':', label='Lower bound (28)')
+        axes[0].axvline(x=36, color='orange', linestyle=':', label='Upper bound (36)')
+        axes[0].set_xlabel('Number of atoms in cell')
+        axes[0].set_ylabel('Frequency')
+        axes[0].set_title('Atom count distribution')
+        axes[0].legend()
+        axes[0].grid(axis='y', alpha=0.5)
+        
+        # Гистограмма 2: Распределение по средней потенциальной энергии
+        axes[1].hist(pe_values, bins=30, edgecolor='black', alpha=0.8, color='steelblue')
+        axes[1].axvline(x=self.LOWER_THRESHOLD, color='green', linestyle='--', 
+                    label=f'LOWER_THRESHOLD ({self.LOWER_THRESHOLD})')
+        axes[1].axvline(x=self.UPPER_THRESHOLD, color='red', linestyle='--', 
+                    label=f'UPPER_THRESHOLD ({self.UPPER_THRESHOLD})')
+        axes[1].set_xlabel('Mean potential energy per atom')
+        axes[1].set_ylabel('Frequency')
+        axes[1].set_title('Mean PE distribution')
+        axes[1].legend()
+        axes[1].grid(axis='y', alpha=0.5)
+        
+        plt.tight_layout()
+        plt.savefig('debug_cell_distribution.png', dpi=150)
+
+        print(f"\n📊 Статистика по {len(atom_counts)} ячейкам:")
+        print(f"Атомы: min={min(atom_counts)}, max={max(atom_counts)}, mean={np.mean(atom_counts):.1f}, std={np.std(atom_counts):.1f}")
+        print(f"PE: min={min(pe_values):.3f}, max={max(pe_values):.3f}, mean={np.mean(pe_values):.3f}, std={np.std(pe_values):.3f}")
+        
+        # Сколько ячеек проходит твои текущие фильтры?
+        passed_atoms = sum(1 for n in atom_counts if 28 <= n <= 36)
+        passed_pe_approx = sum(1 for pe in pe_values if pe < self.LOWER_THRESHOLD)
+        passed_pe_gran = sum(1 for pe in pe_values if pe > self.UPPER_THRESHOLD)
+        
+        print(f"\n🎯 Проходят фильтры:")
+        print(f"По атомам (28-36): {passed_atoms}/{len(atom_counts)} ({100*passed_atoms/len(atom_counts):.1f}%)")
+        print(f"PE < LOWER ({self.LOWER_THRESHOLD}): {passed_pe_approx}/{len(pe_values)} ({100*passed_pe_approx/len(pe_values):.1f}%)")
+        print(f"PE > UPPER ({self.UPPER_THRESHOLD}): {passed_pe_gran}/{len(pe_values)} ({100*passed_pe_gran/len(pe_values):.1f}%)")
+
+        return self.debug_cells_grained
+
     def clear_extractor(self):
         self.cells_to_approximate = []
         self.rogue_cells = []
         self.extra_atoms = []
         self.cells_to_granulate = []
-        self.debug_cells_grained = []
 
     def set_communicator(self, lammps_instance):
         self.lammps_extractor = LammpsCommunicator(lammps_instance)
 
     def get_communicator(self) -> LammpsCommunicator:
         return self.lammps_extractor
+
+    def get_basis_decompostion(self,):
+        positions = self.lammps_extractor.__get_positions__()
+
+        coeffs = positions @ np.linalg.inv(self.basis.T)
+
+        coeffs = np.round(coeffs).astype(int)
+
+        self.z_group_decomposition = coeffs
+        return self.z_group_decomposition
+
+    def get_group_fcc_cells(self, scale_factor :int):
+
+        if not self.z_group_decomposition:
+            self.z_group_decomposition = self.get_basis_decompostion()
+
+        # These are atoms to be approximated with larger particles
+        self.first_level_mask = np.all(self.z_group_decomposition % (2*scale_factor) == 0, axis=1) # & (np.sum(coeffs, axis=1) % 3 == 0)
+
+        # assert np.sum(self.first_level_mask) % len(coeffs) // (2*scale_factor)**3, f"What the FUCK? Found {len(self.z_group_symmetry[self.first_level_mask])} instead of expected {len(coeffs) // scale_factor**3}. Fix this shit NOW!"
+        # These are atoms to be removed! 
+        self.second_level_mask = ~self.first_level_mask
+
+        # one mega fcc cell
+        # self.template_of_filling = coeffs[np.all(coeffs <= (2 * scale_factor), axis=1)]
+        
+        # assert len(self.template_of_filling) == 32
+ 
+        # Generate masks of fcc megacells, size of scale_factor
+        # coeffs_atoms = coeffs[atom_types == 1]
+        # coeffs_particles = coeffs[atom_types == 2]
+
+        number_of_cells = (self.z_group_decomposition[:, 1].max() + 1) // int(scale_factor*2)
+        
+        scaled = (self.z_group_decomposition / (2 * scale_factor))
+
+        n_cells = int(number_of_cells)
+        masks = []
+
+        for x in range(n_cells):
+            for y in range(n_cells):
+                for z in range(n_cells):
+                    mask = (
+                        (scaled[:, 0] >= x) & (scaled[:, 0] < x + 1) &
+                        (scaled[:, 1] >= y) & (scaled[:, 1] < y + 1) &
+                        (scaled[:, 2] >= z) & (scaled[:, 2] < z + 1)
+                    )
+                    masks.append(mask)
+
+        self.fcc_mega_cells = masks
+        return self.fcc_mega_cells 
+    
+    def get_cells_to_apply_action(self):
+        self.get_group_fcc_cells(scale_factor=self.scale_factor)
+        identificators = self.lammps_extractor.__get_atom_identificators__()
+        atom_types = self.lammps_extractor.__get_atom_types__()
+        pe_per_atom = self.lammps_extractor.__get_pe_per_atom__()
+
+        self.fcc_cell_to_approximate = []
+        self.fcc_cell_to_granulate = []
+
+        for fcc_cell in self.fcc_mega_cells:  # fcc_cell is a boolean mask of shape (N,)
+            # if ((len(atom_types[fcc_cell]) != NUMBER_OF_ATOMS_IN_FCC_CELL*self.scale_factor**3) or (len(atom_types[fcc_cell]) == NUMBER_OF_ATOMS_IN_FCC_CELL)):
+            #     continue
+            atoms_in_cell = pe_per_atom[fcc_cell]
+            types_in_cell = atom_types[fcc_cell]
+            mean_pe = np.mean(atoms_in_cell)
+
+            if self.smoke_test == APPROXIMATE:
+                self.fcc_cell_to_approximate.append(fcc_cell)
+
+            if self.smoke_test == GRANULATE:
+                self.fcc_cell_to_granulate.append(fcc_cell)
+            
+            if self.smoke_test == RANDOM_CONDITION:
+                if random.random() > 0.8 and np.all(types_in_cell == 1): # TODO: checkup!
+                    self.fcc_cell_to_approximate.append(fcc_cell)
+                elif random.random() > 0.5 and np.all(types_in_cell == 2):
+                    self.fcc_cell_to_granulate.append(fcc_cell)
+
+            if self.smoke_test == INFERENCE:
+                if mean_pe < -3 and np.all(types_in_cell == 1):
+                    self.fcc_cell_to_approximate.append(fcc_cell)
+                elif mean_pe > -1 and np.all(types_in_cell == 2):
+                    self.fcc_cell_to_granulate.append(fcc_cell)     
+    
+    def get_data_of_cells_to_approximate(self,):
+        positions = self.lammps_extractor.__get_positions__()
+        identificators = self.lammps_extractor.__get_atom_identificators__()
+        ids_tochange_with = []
+        ids_to_delete = []
+        positions_of_large = []
+
+        for cell in self.fcc_cell_to_approximate:
+            # if len(identificators[cell & self.first_level_mask]) != 8:
+            #     continue
+            # assert np.sum(cell & self.first_level_mask) == NUMBER_OF_ATOMS_IN_FCC_CELL
+            # ids_tochange_with.append(identificators[(cell & self.first_level_mask)])
+            # ids_tochange_with.append(np.where((cell & self.first_level_mask))[0]+1)
+            positions_of_large.append(cell & self.first_level_mask)
+            # assert np.sum(cell & self.second_level_mask) == 56 == len(identificators[cell & self.second_level_mask])
+            # ids_to_delete.append(identificators[cell & self.second_level_mask])
+            ids_to_delete.append(np.where(cell)[0]+1)
+
+
+        ids_atoms_to_change_with_particles = np.array(ids_tochange_with).flatten()
+        mask = np.any(np.array(positions_of_large), axis=0)
+
+        return np.concatenate(ids_to_delete).flatten(), positions[mask]
+
+    def get_data_of_cells_to_granulate(self,):
+        identificators = self.lammps_extractor.__get_atom_identificators__()
+
+        ids_tochange_with = []
+        positions_to_spawn = []
+
+        for cell in self.fcc_cell_to_granulate:
+            # assert np.sum(cell & self.first_level_mask) == 4 == len(identificators[cell & self.first_level_mask])
+            ids_tochange_with.append(identificators[cell & self.first_level_mask])
+
+            idx = np.argmin(self.z_group_symmetry[cell & self.first_level_mask][:, 0])
+
+            min_point = self.z_group_symmetry[cell & self.first_level_mask][idx]
+
+            cloud_to_check = self.template_of_filling + min_point  # форма (32, 3)
+
+            # Считаем, сколько точек из cloud_to_check присутствуют в z_group_symmetry
+            # match_count = 0
+            # for point in cloud_to_check:
+            #     # Проверяем, есть ли эта точка в z_group_symmetry (с учетом погрешности)
+            #     is_present = np.any(np.all(np.isclose(self.z_group_symmetry, point), axis=1))
+            #     if is_present:
+            #         match_count += 1
+
+            # assert match_count == 4, f"Expected 4 matches, got {match_count}"
+
+            # assert len(self.basis @ (self.fcc_cell_to_granulate[0] + min_point)) == 64
+
+            positions_to_spawn.append(self.basis @ (self.template_of_filling.T + min_point))
+            
+
+        
+        return np.array(positions_to_spawn), np.array(ids_tochange_with).flatten()
 
     @override
     def extract_interesting_regions(
@@ -207,65 +451,43 @@ class FccCellsExtractor(Extractor):
 
         self.clear_extractor()
         cell_size = self.lattice_constant * 2.0
+        positions = self.lammps_extractor.__get_positions__()
+        atom_ids = self.lammps_extractor.__get_atom_identificators__()
 
-        nx = int(np.round((self.xhi - self.xlo) / cell_size))
-        ny = int(np.round((self.yhi - self.ylo) / cell_size))
-        nz = int(np.round((self.zhi - self.zlo) / cell_size))
+        cell_size = self.lattice_constant * 2.0  # 7.04
+        gap = self.lattice_constant - 2*1e-1  # зазор между боксами (Å)
+        stride = cell_size + gap
+        cell_size_with_eps = cell_size+1e-2
 
-        # Split space to cubes with edge cell_size * SCALE_FACTOR
+        box = self.get_communicator().get_instance().extract_box()
+        xlo, xhi = box[0][0], box[1][0]
+        ylo, yhi = box[0][1], box[1][1]
+        zlo, zhi = box[0][2], box[1][2]
+        eps = 1e-1
+
+        nx = int(np.ceil((xhi - xlo) / cell_size))
+        ny = int(np.ceil((yhi - ylo) / cell_size))
+        nz = int(np.ceil((zhi - zlo) / cell_size))
+
         for ix in range(nx):
+            x_min = xlo + ix * cell_size
+            x_max = min(xlo + (ix+1) * cell_size, xhi)   # последняя ячейка может быть меньше
             for iy in range(ny):
+                y_min = ylo + iy * cell_size
+                y_max = min(ylo + (iy+1) * cell_size, yhi)
                 for iz in range(nz):
-                    cell, ids_of_the_cell = self._get_cell_ids(ix, iy, iz)
-                    self._process_single_cell(ids_of_the_cell, cell)
+                    z_min = zlo + iz * cell_size
+                    z_max = min(zlo + (iz+1) * cell_size, zhi)
 
-        self._repair_underfilled_cells()
+                    mask = (positions[:,0] >= x_min - eps) & (positions[:,0] < x_max + eps) & \
+                        (positions[:,1] >= y_min - eps) & (positions[:,1] < y_max + eps) & \
+                        (positions[:,2] >= z_min - eps) & (positions[:,2] < z_max + eps)
+                    cell_ids = atom_ids[mask]
+                    if len(cell_ids) == 0:
+                        continue
+                    cell = (x_min, x_max, y_min, y_max, z_min, z_max)
+                    self._process_single_cell(cell_ids, cell)
 
-    def _get_cell_ids(self, ix, iy, iz):
-        """
-        Receives the identificators of atoms inside the mega cell
-        """
-        positions = (
-            self.lammps_extractor.__get_positions__()
-        )  # Should be sorted by id or not?
-
-        x_exact_min = self.xlo + ix * self.cell_size
-        x_exact_max = x_exact_min + self.cell_size
-        y_exact_min = self.ylo + iy * self.cell_size
-        y_exact_max = y_exact_min + self.cell_size
-        z_exact_min = self.zlo + iz * self.cell_size
-        z_exact_max = z_exact_min + self.cell_size
-
-        mask = ()
-        low, high = 0.0, 20
-        for _ in range(80):
-            mid = (low + high) / 2
-
-            x_min = x_exact_min - 0.1 * mid
-            x_max = x_exact_max + 0.1 * mid
-            y_min = y_exact_min - 0.1 * mid
-            y_max = y_exact_max + 0.1 * mid
-            z_min = z_exact_min - 0.1 * mid 
-            z_max = z_exact_max + 0.1 * mid
-
-            # collects atoms in the cell
-            mask = (
-                (positions[:, 0] >= x_min) &
-                (positions[:, 0] <= x_max) &
-                (positions[:, 1] >= y_min) &
-                (positions[:, 1] <= y_max) &
-                (positions[:, 2] >= z_min) &
-                (positions[:, 2] <= z_max)
-            )
-            if np.sum(mask) >= 14:
-                high = mid 
-            else:
-                low = mid
-
-
-        identificators = self.lammps_extractor.__get_atom_identificators__()[mask]
-
-        return (x_min, x_max, y_min, y_max, z_min, z_max), identificators
 
     def _process_single_cell(self, atom_identificators, cell):
         """
@@ -277,9 +499,16 @@ class FccCellsExtractor(Extractor):
         """
         type_of_cell = SIMPLE
         number_of_atoms_in_cell = len(atom_identificators)
-        if number_of_atoms_in_cell == 32:
-            self.cells_to_approximate.append((cell, atom_identificators))
-        # if number_of_atoms_in_cell > 30:
+
+
+        if number_of_atoms_in_cell > 20 and number_of_atoms_in_cell  < 40:
+            if self._solver_rule(atom_identificators, to_approximate=True):
+                self.cells_to_approximate.append((cell, atom_identificators))
+
+        if number_of_atoms_in_cell == 4:
+            if self._solver_rule(atom_identificators, to_granulate=True):
+                self.cells_to_granulate.append((cell, atom_identificators))
+
 
         #     if self._solver_rule(atom_identificators, to_approximate=True):
         #         self.cells_to_approximate.append((cell, atom_identificators))
@@ -310,156 +539,6 @@ class FccCellsExtractor(Extractor):
 
     def get_lammps_instance(self):
         return self.lammps_extractor.get_instance()
-
-    def _solver_rule(
-        self, atom_identificators, to_approximate=False, to_granulate=False
-    ) -> bool:
-        res = False
-        mean_pe = np.mean(
-            self.lammps_extractor.__get_pe_per_atom__()[atom_identificators]
-        )
-        minima = np.min(
-            self.lammps_extractor.__get_pe_per_atom__()[atom_identificators]
-        )
-        print(f"Min PE: {minima}")
-        maxima = np.max(
-            self.lammps_extractor.__get_pe_per_atom__()[atom_identificators]
-        )
-        print(f"Max PE: {maxima}")
-        # print(f"Mean PE: {np.mean(self.lammps_extractor.__get_pe_per_atom__()[atom_identificators])}")
-        if to_approximate:
-            if mean_pe < self.LOWER_THRESHOLD:
-                res = True
-        if to_granulate:
-            if mean_pe > self.UPPER_THRESHOLD:
-                res = True
-        return res
-
-    def _define_type_of_underfilled_cell(self, atom_identificators) -> int:
-        res = SIMPLE
-        atom_types = self.lammps_extractor.__get_atom_types__()[atom_identificators]
-        number_of_small_atoms = len(atom_types[atom_types == 1])
-        number_of_huge_atoms = len(atom_types[atom_types == 2])
-
-        # TODO: correct defining of a crack!!! NOW IT IS INCORRECT!!!
-        if number_of_small_atoms > 20:
-            res = ROGUE_CELL
-        elif number_of_huge_atoms == 4:
-            res = GRAINED
-        return res
-
-    def _lammps_execute(self):
-        return self.get_communicator().get_instance()
-
-    def _execute_lammps_replacement_approximation(self, cell_to_granulate: tuple):
-        """
-        Replace atoms with new one.
-        """
-        (x_min, x_max, y_min, y_max, z_min, z_max), atom_ids = cell_to_granulate
-        
-        if len(atom_ids) > 0:
-            string_of_ids = " ".join(map(str, atom_ids + 1))
-            self._lammps_execute().command(f"group delete_group id {string_of_ids}")
-            self._lammps_execute().command("delete_atoms group delete_group")
-            self._lammps_execute().command("group delete_group delete")
-
-        self._lammps_execute().command(
-            f"region spawn_region block {x_min} {x_max} {y_min} {y_max} {z_min} {z_max} units box"
-        )
-
-        lenj = len(self.get_communicator().__get_atom_identificators__())
-        print(f"Max len: {lenj}")
-        self._lammps_execute().command(f"lattice fcc {self.lattice_constant_cg-0.01}")
-        
-        if len(atom_ids) > 0:
-            velocities_of_the_cell = self.get_communicator().__get_velocities__()[atom_ids]
-            mean_vx = np.mean(velocities_of_the_cell[:, 0]) * 8
-            mean_vy = np.mean(velocities_of_the_cell[:, 1]) * 8
-            mean_vz = np.mean(velocities_of_the_cell[:, 2]) * 8
-        else:
-            mean_vx = mean_vy = mean_vz = 0.0
-
-        commands = [
-            f"variable vx_new equal {mean_vx}",
-            f"variable vy_new equal {mean_vy}",
-            f"variable vz_new equal {mean_vz}",
-            "create_atoms 2 region spawn_region",
-            "group cell_atoms region spawn_region",
-            "velocity cell_atoms set ${vx_new} ${vy_new} ${vz_new}",
-            "variable vx_new delete",
-            "variable vy_new delete",
-            "variable vz_new delete",
-        ]
-        for cmd in commands:
-            self._lammps_execute().command(cmd)
-        self._lammps_execute().command("group cell_atoms delete")
-        self._lammps_execute().command("region spawn_region delete")
-        self._lammps_execute().command("reset_atoms id")
-        # self._lammps_execute().command("delete_atoms overlap 0.01 all all")
-        # return
-        # if self.__DEBUG_MODE__:
-        #     self.__debug_grained_cells.append((x_min, x_max, y_min, y_max, z_min, z_max))
-
-    def _execute_lammps_replacement_granulation(self, cell_to_granulate: tuple):
-        (x_min, x_max, y_min, y_max, z_min, z_max), atom_ids = cell_to_granulate
-        
-        if len(atom_ids) > 0:
-            string_of_ids = " ".join(map(str, atom_ids + 1))
-            self._lammps_execute().command(f"group delete_group id {string_of_ids}")
-            self._lammps_execute().command("delete_atoms group delete_group")
-            self._lammps_execute().command("group delete_group delete")
-
-        self._lammps_execute().command(
-            f"region spawn_region block {x_min} {x_max} {y_min} {y_max} {z_min} {z_max} units box"
-        )
-
-        self._lammps_execute().command(f"lattice fcc {self.lattice_constant}")
-        
-        if len(atom_ids) > 0:
-            velocities_of_the_cell = self.get_communicator().__get_velocities__()[atom_ids]
-            mean_vx = np.mean(velocities_of_the_cell[:, 0]) / 8
-            mean_vy = np.mean(velocities_of_the_cell[:, 1]) / 8
-            mean_vz = np.mean(velocities_of_the_cell[:, 2]) / 8
-        else:
-            mean_vx = mean_vy = mean_vz = 0.0
-
-        commands = [
-            f"variable vx_new equal {mean_vx}",
-            f"variable vy_new equal {mean_vy}",
-            f"variable vz_new equal {mean_vz}",
-            "create_atoms 1 region spawn_region",
-            "group cell_atoms region spawn_region",
-            "velocity cell_atoms set ${vx_new} ${vy_new} ${vz_new}",
-            "variable vx_new delete",
-            "variable vy_new delete",
-            "variable vz_new delete",
-        ]
-        for cmd in commands:
-            self._lammps_execute().command(cmd)
-        self._lammps_execute().command("group cell_atoms delete")
-        self._lammps_execute().command("region spawn_region delete")
-        # self._lammps_execute().command("delete_atoms overlap 0.01 all all")
-        # return
-        # if self.__DEBUG_MODE__:
-        #     self.__debug_grained_cells.append((x_min, x_max, y_min, y_max, z_min, z_max))
-
-    def _extract_extra_atoms(self, atom_identificators: np.ndarray, is_crack: bool):
-        if is_crack:
-            self.extra_atoms.extend(atom_identificators)
-        else:
-            # Extract those atoms which are far from ideal fcc cell
-            self.extra_atoms.extend(atom_identificators[32:])
-
-            # TODO: correct fcc extraction. NOW IT IS INCORRECT!!!
-            return atom_identificators[:32]
-
-    def _repair_underfilled_cells(
-        self,
-    ):
-
-        # TODO: setup satisfaction of law of masses!!!
-        # Fill unfilled mega cells.
-        return
 
     def _get_cells_to_approximate(
         self,
