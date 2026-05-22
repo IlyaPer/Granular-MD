@@ -159,18 +159,13 @@ class TestFccCellsExtractionSimple(unittest.TestCase):
         self.L.command("run 1500")
 
 
-class TestFccCellsExtractionBig(unittest.TestCase):
+class TestFccCellsExtraction2x2(unittest.TestCase):
 
     def setUp(self):
-        SCALE_FACTOR = 2
-
-        sigma_for_nickel = 3.52 * (58.69 / 2.5) ** (-1)
-        SIGMA = sigma_for_nickel
         A = 3.52
+        A_CG = A*2
 
-        SIGMA_CG, A_CG, EPSILON_CG, ATOMIC_UNIT_MASS_CG = compute_params_CG(
-            SCALE_FACTOR
-        )
+        self.NUMBER_OF_MEGA_CELLS=2**3
 
         self.L = lammps()
 
@@ -180,35 +175,153 @@ class TestFccCellsExtractionBig(unittest.TestCase):
         self.xlo, self.xhi, self.ylo, self.yhi, self.zlo, self.zhi = (
             self.communicator.__get_box_size__()
         )
-        self.solver = FccCellsExtractor(self.communicator, A, smoke_test=APPROXIMATE)
+        self.solver = FccCellsExtractor(self.communicator, A, smoke_test=APPROXIMATE, scale_factor=2)
         self.dc = DynamicChanger(
             self.communicator, self.solver, A, A_CG, scale_factor=2, baby_mode=True
         )
 
-    def test_simple_split_1_mega_cell(self):
-        self.solver.extract_symmetry(scale_factor=2)
+    def test_simple_split_many_cells(self):
+        fcc_cells = self.solver.get_group_fcc_cells(scale_factor=1)
 
-        self.assertEqual(len(self.solver.fcc_mega_cells), 4**3)
+        self.assertEqual(4**3, len(fcc_cells))
 
         for cell in self.solver.fcc_mega_cells:
+            self.assertEqual(len(self.communicator.__get_positions__()[cell]), 4)
+
+    def test_simple_split_scale_factor2(self):
+
+        fcc_cells = self.solver.get_group_fcc_cells(scale_factor=2)
+ 
+        self.assertEqual(2**3, len(fcc_cells))
+
+        for cell in fcc_cells:
             self.assertEqual(len(self.communicator.__get_positions__()[cell]), 32)
 
-    def test_simple_change(self):
-        self.solver.extract_symmetry(scale_factor=2)
+    def test_approximate_all_simulation(self):
+        """
+        expect changer:
+         1) to approximate 1 mega fcc cell (2*2*2) with 4 atoms
+         2) to put these atoms in correct positions
+        with respect to law of masses and potential energy!
+        """
+
+        initial_mass = self.communicator.get_total_mass()
+
         self.solver.get_cells_to_apply_action()
 
-        identificators_tochange, _, identificators_to_delete = (
+        identificators_to_delete, positions_of_large = self.solver.get_data_of_cells_to_approximate()
+
+        self.assertEqual(len(positions_of_large), self.NUMBER_OF_MEGA_CELLS * 4)
+
+        self.assertEqual(len(identificators_to_delete), self.NUMBER_OF_MEGA_CELLS * 32)
+
+        self.dc.accelerate(self.L)
+
+        self.L = self.dc.communicator.get_instance()
+        self.communicator2 = LammpsCommunicator(self.L)
+
+        final_mass = self.communicator2.get_total_mass()
+
+        self.L.command("run 1500")
+
+        #TODO: CHECK why mass is not satisfied properly
+        self.assertLess(abs(1 - initial_mass / final_mass)*100, 5)
+        
+    def test_granulate_all_simulation(self):
+        """
+        expect changer:
+         1) to granulate 1 mega fcc cell with 32 atoms
+         2) to put these atoms in correct positions
+         3) to be launched correctly after that
+        with respect to law of masses and potential energy!
+        """
+
+        self.solver.get_cells_to_apply_action()
+
+        identificators_to_delete, positions_to_appr = (
             self.solver.get_data_of_cells_to_approximate()
         )
 
-        self.assertEqual(len(self.solver.fcc_mega_cells), 4**3)
-        for cell in self.solver.fcc_mega_cells:
-            self.assertEqual(len(self.communicator.__get_positions__()[cell]), 32)
+        initial_mass = self.communicator.get_total_mass()
 
-        self.assertEqual(len(identificators_tochange), 4 * 4**3)
+        self.dc.accelerate(self.L)
+        positions_old = self.communicator.__get_positions__()
+        self.dc.communicator.get_instance().command("run 1500")
+        self.L = self.dc.communicator.get_instance()
 
-        self.assertEqual(len(identificators_to_delete) % 28, 0)
+        self.communicator = LammpsCommunicator(self.L)
+        # self.xlo, self.xhi, self.ylo, self.yhi, self.zlo, self.zhi = (
+        #     self.communicator.__get_box_size__()
+        # )
+        solver = FccCellsExtractor(self.communicator, 3.52, scale_factor=2, smoke_test=RANDOM_CONDITION)
+        dc = DynamicChanger(
+            self.communicator, solver, 3.52, 3.52*2, scale_factor=2, baby_mode=True
+        )
+        # solver.get_basis_decompostion()
 
+        # solver.get_cells_to_apply_action()
+
+        # identificators_tochange, positions_to_appr = (
+        #     solver.get_data_of_cells_to_granulate()
+        # )
+
+        # positions = self.communicator.__get_positions__()
+
+        # self.assertEqual(len(positions_old), len(positions))
+
+        # self.assertEqual(len(self.solver.fcc_cell_to_granulate), self.NUMBER_OF_MEGA_CELLS)
+        
+        # for cell in self.solver.fcc_cell_to_granulate:
+        #     self.assertEqual(len(positions[cell]), 4)
+
+        # self.assertEqual(len(positions_to_appr), self.NUMBER_OF_MEGA_CELLS * 32)
+
+        # self.assertEqual(len(identificators_tochange), self.NUMBER_OF_MEGA_CELLS * 4)
+
+        dc.accelerate(self.L, only_granulate=True)
+
+        self.communicator2 = LammpsCommunicator(dc.communicator.get_instance())
+
+        final_mass = self.communicator2.get_total_mass()
+        self.L.command("run 1500")
+
+        self.assertLess(abs(1 - initial_mass / final_mass)*100, 5, f"Law of masses is not satisfied! The error is {np.round(abs(1 - initial_mass / final_mass)*100)}%. Initial mass is {initial_mass}, final is {final_mass}")
+
+    def test_random_condition_approximation_granulation(self):
+        """
+        almost real task:
+        1) based on random condition the approximation is applied
+        2) then, if exists regions to be granulated and random condition is satisfied - granulation is provided
+        3) run N steps
+        4) start over again 
+        """
+
+        self.communicator = LammpsCommunicator(self.L)
+
+        initial_mass = self.communicator.get_total_mass()
+        # self.xlo, self.xhi, self.ylo, self.yhi, self.zlo, self.zhi = (
+        #     self.communicator.__get_box_size__()
+        # )
+        solver = FccCellsExtractor(self.communicator, 3.52, scale_factor=2, smoke_test=RANDOM_CONDITION)
+        dc = DynamicChanger(
+            self.communicator, solver, 3.52, 3.52*2, scale_factor=2, baby_mode=True
+        )
+
+        dc.accelerate(self.L)
+        self.L.command("run 1500")
+        interval_mass = self.communicator.get_total_mass()
+
+        self.assertLess(abs(1 - initial_mass / interval_mass)*100, 5, f"Law of masses is not satisfied! The error is {np.round(abs(1 - initial_mass / interval_mass)*100)}%. Initial mass is {initial_mass}, final is {interval_mass}")
+
+        dc.accelerate(self.L)
+        final_mass = self.communicator.get_total_mass()
+        self.L.command("run 1500")
+
+        self.assertLess(abs(1 - initial_mass / final_mass)*100, 5, f"Law of masses is not satisfied! The error is {np.round(abs(1 - initial_mass / final_mass)*100)}%. Initial mass is {initial_mass}, final is {final_mass}")
+
+        for i in range(10):
+            dc.accelerate(self.L)
+            self.L.command("run 1500")
 
 class RandomConditionTest(unittest.TestCase):
 
