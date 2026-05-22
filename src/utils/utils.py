@@ -24,9 +24,14 @@ class LammpsCommunicator():
         return raw_positions[sort_indices]
     
     def get_masses(self) -> np.ndarray:
-        raw_masses = self.lammps_instance.numpy.extract_atom("m")[:self.nlocal]
-        sort_indices = np.argsort(self.__get_atom_identificators__())
-        return raw_masses[sort_indices]
+        raw_masses = self.lammps_instance.numpy.extract_atom("mass")
+        types = self.__get_atom_types__()
+        masses = np.array([raw_masses[t] for t in types])
+        # masses = np.array([58.6934 if t==1 else 469.5472 for t in types])
+        return masses
+    
+    def get_total_mass(self) -> np.ndarray:
+        return np.sum(self.get_masses())
 
     # def __get_positions__(self) -> np.ndarray:
     #     image_flags = self.lammps_instance.extract_atom("image", 2)
