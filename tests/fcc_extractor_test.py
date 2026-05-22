@@ -99,7 +99,7 @@ class TestFccCellsExtractionSimple(unittest.TestCase):
 
         self.assertEqual(1, len(fcc_cells))
 
-        self.assertEqual(32, len(positions))
+        self.assertEqual(32, len(positions[fcc_cells[0]]))
 
     def test_approximate_simulation(self):
         """
@@ -112,7 +112,7 @@ class TestFccCellsExtractionSimple(unittest.TestCase):
 
         identificators_to_delete, positions_of_large = self.solver.get_data_of_cells_to_approximate()
 
-        self.assertEqual(len(positions_of_large), 8)
+        self.assertEqual(len(positions_of_large), 4)
 
         self.assertEqual(len(identificators_to_delete), 32)
 
@@ -125,20 +125,38 @@ class TestFccCellsExtractionSimple(unittest.TestCase):
         with respect to law of masses and potential energy!
         """
 
-        self.solver.get_basis_decompostion()
-
         self.solver.get_cells_to_apply_action()
 
-        identificators_tochange, _, identificators_to_delete = (
+        identificators_to_delete, positions_to_appr = (
             self.solver.get_data_of_cells_to_approximate()
         )
 
         self.dc.accelerate(self.L)
-        self.L.command("run 1500")
+        self.dc.communicator.get_instance().command("run 1500")
+        self.L = self.dc.communicator.get_instance()
 
-        identificators_tochange, _, identificators_to_delete = (
-            self.solver.get_data_of_cells_to_approximate()
+        self.communicator = LammpsCommunicator(self.L)
+        # self.xlo, self.xhi, self.ylo, self.yhi, self.zlo, self.zhi = (
+        #     self.communicator.__get_box_size__()
+        # )
+        solver = FccCellsExtractor(self.communicator, 3.52, scale_factor=2, smoke_test=23920932)
+        dc = DynamicChanger(
+            self.communicator, solver, 3.52, 3.52*2, scale_factor=2, baby_mode=True
         )
+        solver.get_basis_decompostion()
+
+        solver.get_cells_to_apply_action()
+
+        identificators_tochange, positions_to_appr = (
+            solver.get_data_of_cells_to_granulate()
+        )
+
+        self.assertEqual(len(positions_to_appr), 32)
+
+        self.assertEqual(len(identificators_tochange), 4)
+
+        dc.accelerate(self.L, only_granulate=True)
+        self.L.command("run 1500")
 
 
 class TestFccCellsExtractionBig(unittest.TestCase):
@@ -214,7 +232,7 @@ class RandomConditionTest(unittest.TestCase):
             self.communicator.__get_box_size__()
         )
         self.solver = FccCellsExtractor(
-            self.communicator, A, smoke_test=RANDOM_CONDITION
+            self.communicator, A, smoke_test=RANDOM_CONDITION, scale_factor=2
         )
         self.dc = DynamicChanger(
             self.communicator, self.solver, A, A_CG, scale_factor=2, baby_mode=True
@@ -248,6 +266,7 @@ class RandomConditionTest(unittest.TestCase):
         self.L.command("run 500")
 
         self.dc.accelerate(self.L, only_granulate=True, only_approximate=False)
+        self.L.command("run 500")
 
 
 class TestFccGranulation(unittest.TestCase):
