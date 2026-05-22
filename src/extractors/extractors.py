@@ -197,39 +197,38 @@ class FccCellsExtractor(Extractor):
             [0, 0, a/2]
         ])
 
-        self.template_of_filling = np.array([
-                                [0, 0, 0],
-                                [2, 2, 0],
-                                [2, 0, 2],
-                                [0, 2, 2],
-                                [4, 0, 0],
-                                [4, 2, 2],
-                                [6, 2, 0],
-                                [6, 0, 2],
-                                [0, 4, 0],
-                                [2, 4, 2],
-                                [4, 4, 0],
-                                [6, 4, 2],
-                                [2, 6, 0],
-                                [0, 6, 2],
-                                [4, 6, 2],
-                                [6, 6, 0],
-                                [0, 0, 4],
-                                [2, 2, 4],
-                                [4, 0, 4],
-                                [6, 2, 4],
-                                [0, 4, 4],
-                                [4, 4, 4],
-                                [2, 6, 4],
-                                [6, 6, 4],
-                                [2, 0, 6],
-                                [0, 2, 6],
-                                [4, 2, 6],
-                                [6, 0, 6],
-                                [2, 4, 6],
-                                [6, 4, 6],
-                                [0, 6, 6],
-                                [4, 6, 6]])
+        self.template_of_filling = np.array([[0, 0, 0],
+       [1, 1, 0],
+       [1, 0, 1],
+       [0, 1, 1],
+       [2, 0, 0],
+       [3, 1, 0],
+       [3, 0, 1],
+       [2, 1, 1],
+       [0, 2, 0],
+       [1, 3, 0],
+       [1, 2, 1],
+       [0, 3, 1],
+       [2, 2, 0],
+       [3, 3, 0],
+       [3, 2, 1],
+       [2, 3, 1],
+       [0, 0, 2],
+       [1, 1, 2],
+       [1, 0, 3],
+       [0, 1, 3],
+       [2, 0, 2],
+       [3, 1, 2],
+       [3, 0, 3],
+       [2, 1, 3],
+       [0, 2, 2],
+       [1, 3, 2],
+       [1, 2, 3],
+       [0, 3, 3],
+       [2, 2, 2],
+       [3, 3, 2],
+       [3, 2, 3],
+       [2, 3, 3]])
 
         self.smoke_test = smoke_test
 
@@ -305,28 +304,27 @@ class FccCellsExtractor(Extractor):
 
     def get_group_fcc_cells(self, scale_factor :int):
 
-        if not self.z_group_decomposition:
+        if self.z_group_decomposition is None:
             self.z_group_decomposition = self.get_basis_decompostion()
 
         # These are atoms to be approximated with larger particles
-        self.first_level_mask = np.all(self.z_group_decomposition % (2*scale_factor) == 0, axis=1) # & (np.sum(coeffs, axis=1) % 3 == 0)
-
+        self.first_level_mask = np.all(self.z_group_decomposition % scale_factor == 0, axis=1) # & (np.sum(coeffs, axis=1) % 3 == 0)
+        self.first_level_mask_basis = np.sum(self.z_group_decomposition,axis=1) % (scale_factor*2) == 0
         # assert np.sum(self.first_level_mask) % len(coeffs) // (2*scale_factor)**3, f"What the FUCK? Found {len(self.z_group_symmetry[self.first_level_mask])} instead of expected {len(coeffs) // scale_factor**3}. Fix this shit NOW!"
         # These are atoms to be removed! 
         self.second_level_mask = ~self.first_level_mask
 
         # one mega fcc cell
-        # self.template_of_filling = coeffs[np.all(coeffs <= (2 * scale_factor), axis=1)]
         
-        # assert len(self.template_of_filling) == 32
+        # assert len(self.template_of_filling) == 32 
  
         # Generate masks of fcc megacells, size of scale_factor
         # coeffs_atoms = coeffs[atom_types == 1]
         # coeffs_particles = coeffs[atom_types == 2]
 
-        number_of_cells = (self.z_group_decomposition[:, 1].max() + 1) // int(scale_factor*2)
+        number_of_cells = (self.z_group_decomposition[:, 1].max() + 1) // (1 + scale_factor)
         
-        scaled = (self.z_group_decomposition / (2 * scale_factor))
+        scaled = (self.z_group_decomposition / (1 + scale_factor))
 
         n_cells = int(number_of_cells)
         masks = []
@@ -335,10 +333,13 @@ class FccCellsExtractor(Extractor):
             for y in range(n_cells):
                 for z in range(n_cells):
                     mask = (
-                        (scaled[:, 0] >= x) & (scaled[:, 0] < x + 1) &
-                        (scaled[:, 1] >= y) & (scaled[:, 1] < y + 1) &
-                        (scaled[:, 2] >= z) & (scaled[:, 2] < z + 1)
+                        (scaled[:, 0] >= x) & (scaled[:, 0] <= x + 1) &
+                        (scaled[:, 1] >= y) & (scaled[:, 1] <= y + 1) &
+                        (scaled[:, 2] >= z) & (scaled[:, 2] <= z + 1)
                     )
+
+                    # if (positions[mask] == 32) or (positions[mask] == 29) or \
+                    # (positions[mask] == 32) or (positions[mask] == 29) or \
                     masks.append(mask)
 
         self.fcc_mega_cells = masks
@@ -391,7 +392,7 @@ class FccCellsExtractor(Extractor):
             # assert np.sum(cell & self.first_level_mask) == NUMBER_OF_ATOMS_IN_FCC_CELL
             # ids_tochange_with.append(identificators[(cell & self.first_level_mask)])
             # ids_tochange_with.append(np.where((cell & self.first_level_mask))[0]+1)
-            positions_of_large.append(cell & self.first_level_mask)
+            positions_of_large.append(cell & self.first_level_mask & self.first_level_mask_basis)
             # assert np.sum(cell & self.second_level_mask) == 56 == len(identificators[cell & self.second_level_mask])
             # ids_to_delete.append(identificators[cell & self.second_level_mask])
             ids_to_delete.append(np.where(cell)[0]+1)
@@ -400,23 +401,26 @@ class FccCellsExtractor(Extractor):
         ids_atoms_to_change_with_particles = np.array(ids_tochange_with).flatten()
         mask = np.any(np.array(positions_of_large), axis=0)
 
-        return np.concatenate(ids_to_delete).flatten(), positions[mask]
+        return np.concatenate(ids_to_delete).flatten().astype(int), positions[mask]
 
     def get_data_of_cells_to_granulate(self,):
         identificators = self.lammps_extractor.__get_atom_identificators__()
 
+        if self.z_group_decomposition is None:
+            self.z_group_decomposition = self.get_basis_decompostion()
+
         ids_tochange_with = []
-        positions_to_spawn = []
+        positions_to_spawn = np.array([])
 
         for cell in self.fcc_cell_to_granulate:
             # assert np.sum(cell & self.first_level_mask) == 4 == len(identificators[cell & self.first_level_mask])
             ids_tochange_with.append(identificators[cell & self.first_level_mask])
 
-            idx = np.argmin(self.z_group_symmetry[cell & self.first_level_mask][:, 0])
+            idx = np.argmin(self.z_group_decomposition[cell & self.first_level_mask][:, 0])
 
-            min_point = self.z_group_symmetry[cell & self.first_level_mask][idx]
+            min_point = self.z_group_decomposition[cell & self.first_level_mask][idx]
 
-            cloud_to_check = self.template_of_filling + min_point  # форма (32, 3)
+            # cloud_to_check = self.template_of_filling + min_point  # форма (32, 3)
 
             # Считаем, сколько точек из cloud_to_check присутствуют в z_group_symmetry
             # match_count = 0
@@ -430,11 +434,14 @@ class FccCellsExtractor(Extractor):
 
             # assert len(self.basis @ (self.fcc_cell_to_granulate[0] + min_point)) == 64
 
-            positions_to_spawn.append(self.basis @ (self.template_of_filling.T + min_point))
+            if len(positions_to_spawn) == 0:
+                positions_to_spawn = (self.basis @ (self.template_of_filling + min_point).T).T
+            else:
+                positions_to_spawn = np.concatenate([positions_to_spawn, (self.basis @ (self.template_of_filling + min_point).T).T])
             
 
         
-        return np.array(positions_to_spawn), np.array(ids_tochange_with).flatten()
+        return np.array(ids_tochange_with).flatten().astype(int), positions_to_spawn
 
     @override
     def extract_interesting_regions(
