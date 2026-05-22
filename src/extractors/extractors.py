@@ -281,10 +281,8 @@ class FccCellsExtractor(Extractor):
         return self.debug_cells_grained
 
     def clear_extractor(self):
-        self.cells_to_approximate = []
-        self.rogue_cells = []
-        self.extra_atoms = []
-        self.cells_to_granulate = []
+        self.fcc_cell_to_approximate = []
+        self.fcc_cell_to_granulate = []
 
     def set_communicator(self, lammps_instance):
         self.lammps_extractor = LammpsCommunicator(lammps_instance)
@@ -322,20 +320,31 @@ class FccCellsExtractor(Extractor):
         # coeffs_atoms = coeffs[atom_types == 1]
         # coeffs_particles = coeffs[atom_types == 2]
 
-        number_of_cells = (self.z_group_decomposition[:, 1].max() + 1) // (1 + scale_factor)
+        if scale_factor == 1:
+            number_of_cells = self.z_group_decomposition[:, 1].max() // 2
+        else:
+            number_of_cells = (self.z_group_decomposition[:, 1].max()) // (1 + scale_factor)
         
+        # if scale_factor != 1:
+        step = (scale_factor*2)
         scaled = (self.z_group_decomposition / (1 + scale_factor))
+        scaled = self.z_group_decomposition
+        # else:
+        #     step = 1
+        #     scaled = self.z_group_decomposition
 
         n_cells = int(number_of_cells)
         masks = []
 
-        for x in range(n_cells):
-            for y in range(n_cells):
-                for z in range(n_cells):
+        max_y = self.z_group_decomposition[:, 1].max()
+
+        for x in range(0, max_y, step):
+            for y in range(0, max_y, step):
+                for z in range(0, max_y, step):
                     mask = (
-                        (scaled[:, 0] >= x) & (scaled[:, 0] <= x + 1) &
-                        (scaled[:, 1] >= y) & (scaled[:, 1] <= y + 1) &
-                        (scaled[:, 2] >= z) & (scaled[:, 2] <= z + 1)
+                        (scaled[:, 0] >= x) & (scaled[:, 0] <= x + (step-1)) &
+                        (scaled[:, 1] >= y) & (scaled[:, 1] <= y + (step-1)) &
+                        (scaled[:, 2] >= z) & (scaled[:, 2] <= z + (step-1))
                     )
 
                     # if (positions[mask] == 32) or (positions[mask] == 29) or \
@@ -346,6 +355,8 @@ class FccCellsExtractor(Extractor):
         return self.fcc_mega_cells 
     
     def get_cells_to_apply_action(self):
+        self.clear_extractor()
+
         self.get_group_fcc_cells(scale_factor=self.scale_factor)
         identificators = self.lammps_extractor.__get_atom_identificators__()
         atom_types = self.lammps_extractor.__get_atom_types__()
@@ -401,7 +412,7 @@ class FccCellsExtractor(Extractor):
         ids_atoms_to_change_with_particles = np.array(ids_tochange_with).flatten()
         mask = np.any(np.array(positions_of_large), axis=0)
 
-        return np.concatenate(ids_to_delete).flatten().astype(int), positions[mask]
+        return np.unique(np.concatenate(ids_to_delete).flatten()).astype(int), positions[mask]
 
     def get_data_of_cells_to_granulate(self,):
         identificators = self.lammps_extractor.__get_atom_identificators__()
@@ -414,34 +425,18 @@ class FccCellsExtractor(Extractor):
 
         for cell in self.fcc_cell_to_granulate:
             # assert np.sum(cell & self.first_level_mask) == 4 == len(identificators[cell & self.first_level_mask])
-            ids_tochange_with.append(identificators[cell & self.first_level_mask])
+            ids_tochange_with.append(np.where(cell)[0])
 
             idx = np.argmin(self.z_group_decomposition[cell & self.first_level_mask][:, 0])
 
             min_point = self.z_group_decomposition[cell & self.first_level_mask][idx]
 
-            # cloud_to_check = self.template_of_filling + min_point  # форма (32, 3)
-
-            # Считаем, сколько точек из cloud_to_check присутствуют в z_group_symmetry
-            # match_count = 0
-            # for point in cloud_to_check:
-            #     # Проверяем, есть ли эта точка в z_group_symmetry (с учетом погрешности)
-            #     is_present = np.any(np.all(np.isclose(self.z_group_symmetry, point), axis=1))
-            #     if is_present:
-            #         match_count += 1
-
-            # assert match_count == 4, f"Expected 4 matches, got {match_count}"
-
-            # assert len(self.basis @ (self.fcc_cell_to_granulate[0] + min_point)) == 64
-
             if len(positions_to_spawn) == 0:
                 positions_to_spawn = (self.basis @ (self.template_of_filling + min_point).T).T
             else:
                 positions_to_spawn = np.concatenate([positions_to_spawn, (self.basis @ (self.template_of_filling + min_point).T).T])
-            
 
-        
-        return np.array(ids_tochange_with).flatten().astype(int), positions_to_spawn
+        return np.unique(np.array(ids_tochange_with).flatten()).astype(int), positions_to_spawn
 
     @override
     def extract_interesting_regions(
@@ -506,7 +501,6 @@ class FccCellsExtractor(Extractor):
         """
         type_of_cell = SIMPLE
         number_of_atoms_in_cell = len(atom_identificators)
-
 
         if number_of_atoms_in_cell > 20 and number_of_atoms_in_cell  < 40:
             if self._solver_rule(atom_identificators, to_approximate=True):
