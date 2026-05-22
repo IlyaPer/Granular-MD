@@ -16,27 +16,17 @@ class LammpsCommunicator():
         self.mean_positions = mean_positions
 
     def __get_positions__(self, current_snapshot=False) -> np.ndarray:
-
-        # positions = np.array(self.lammps_instance.gather_atoms("x", 1, 3))  # sorted and wrapped already?
-
-        if current_snapshot or len(self.mean_positions) == 0:
-            raw_velocities = self.lammps_instance.numpy.extract_atom("x")[:self.nlocal]
-            sort_indices = np.argsort(self.__get_atom_identificators__())
+        raw_positions = self.lammps_instance.numpy.extract_atom("x")[:self.nlocal]
+        sort_indices = np.argsort(self.__get_atom_identificators__())
+        if current_snapshot:
+            raw_velocities = self.lammps_instance.numpy.extract_atom("v")[:self.nlocal]
             return raw_velocities[sort_indices]
-        # raw_pos = np.array(self.lammps_instance.gather_atoms("x", 1, 3)).reshape(126, 3)
-        # image_flags = self.lammps_instance.extract_atom("image", 2)
-        # boxlo, boxhi, xy, yz, xz, periodicity, box_change = self.lammps_instance.extract_box()
-        # raw_pos = self.lammps_instance.numpy.extract_atom("x")[:self.nlocal]
-        # box_length = np.array([boxhi[0] - boxlo[0], boxhi[1] - boxlo[1], boxhi[2] - boxlo[2]])
-
-        # # Convert to NumPy arrays for easy vector manipulation
-        # x_unwrapped = np.ctypeslib.as_array(raw_pos, shape=(126, 3))
-        # images = np.ctypeslib.as_array(image_flags, shape=(126, 3))
-
-        # # 3. Calculate wrapped coordinates: x_wrapped = x_unwrapped - (image_flag * box_length)
-        # x_wrapped = x_unwrapped - images * box_length
-        # sort_indices = np.argsort(self.__get_atom_identificators__())
-        return self.mean_positions
+        return raw_positions[sort_indices]
+    
+    def get_masses(self) -> np.ndarray:
+        raw_masses = self.lammps_instance.numpy.extract_atom("m")[:self.nlocal]
+        sort_indices = np.argsort(self.__get_atom_identificators__())
+        return raw_masses[sort_indices]
 
     # def __get_positions__(self) -> np.ndarray:
     #     image_flags = self.lammps_instance.extract_atom("image", 2)
@@ -51,6 +41,55 @@ class LammpsCommunicator():
     #     raw_pos = self.lammps_instance.numpy.extract_atom("x")[:self.nlocal]
     #     x_wrapped = np.ctypeslib.as_array(raw_repo, shape=(self.nlocal, 3)).copy()
 
+
+# def extract_interesting_regions(self):
+#     self.xlo, self.xhi, self.ylo, self.yhi, self.zlo, self.zhi, self.pbc = (
+#         self.lammps_extractor.__get_box_size__()
+#     )
+#     self.clear_extractor()
+#     cell_size = self.lattice_constant * 2.0  # 7.04
+
+#     positions = self.lammps_extractor.__get_positions__()
+#     atom_ids = self.lammps_extractor.__get_atom_identificators__()
+
+#     # 1. Жесткое разбиение через floor. Граница принадлежит ТОЛЬКО одной ячейке.
+#     ix = np.floor((positions[:, 0] - self.xlo) / cell_size).astype(int)
+#     iy = np.floor((positions[:, 1] - self.ylo) / cell_size).astype(int)
+#     iz = np.floor((positions[:, 2] - self.zlo) / cell_size).astype(int)
+
+#     nx = int(np.round((self.xhi - self.xlo) / cell_size))
+#     ny = int(np.round((self.yhi - self.ylo) / cell_size))
+#     nz = int(np.round((self.zhi - self.zlo) / cell_size))
+
+#     # 2. Исключаем граничные ячейки (как ты и хотел)
+#     valid = (ix >= 1) & (ix < nx-1) & \
+#             (iy >= 1) & (iy < ny-1) & \
+#             (iz >= 1) & (iz < nz-1)
+
+#     ix, iy, iz = ix[valid], iy[valid], iz[valid]
+#     atom_ids = atom_ids[valid]
+
+#     # 3. Группируем атомы по уникальным ячейкам (O(N), мгновенно)
+#     cell_idx = ix * (ny * nz) + iy * nz + iz
+#     unique_cells, inverse = np.unique(cell_idx, return_inverse=True)
+
+#     for cid in unique_cells:
+#         mask = inverse == cid
+#         ids_in_cell = atom_ids[mask]
+
+#         # Восстанавливаем точные границы ячейки
+#         ci = int(cid // (ny * nz))
+#         cj = int((cid // nz) % ny)
+#         ck = int(cid % nz)
+
+#         cell = (
+#             self.xlo + ci * cell_size, self.xlo + (ci+1) * cell_size,
+#             self.ylo + cj * cell_size, self.ylo + (cj+1) * cell_size,
+#             self.zlo + ck * cell_size, self.zlo + (ck+1) * cell_size
+#         )
+        
+        # Твой существующий обработчик
+        self._process_single_cell(cell, ids_in_cell)
     #     # если нужны именно координаты строго в box, можно сделать норму
     #     # для каждой размерности отдельно
     #     x_normalized = x_wrapped.copy()
@@ -79,7 +118,7 @@ class LammpsCommunicator():
     
     def __get_atom_identificators__(self,) -> np.ndarray:
         raw_ids = self.lammps_instance.numpy.extract_atom("id")[:self.nlocal]
-        return raw_ids - 1 # LAMMPS starts indexing from 1, not 0.
+        return raw_ids# LAMMPS starts indexing from 1, not 0.
     
     def __get_box_size__(self,) -> tuple:
         box = self.lammps_instance.extract_box() # TODO: MINIMAL POSITIONS INSTEAD OF BOX
@@ -89,7 +128,7 @@ class LammpsCommunicator():
         xlo, xhi = np.min(self.__get_positions__()[:,0]), np.max(self.__get_positions__()[:,0]) 
         ylo, yhi = np.min(self.__get_positions__()[:,1]), np.max(self.__get_positions__()[:,1])
         zlo, zhi = np.min(self.__get_positions__()[:,2]), np.max(self.__get_positions__()[:,2])
-        return xlo, xhi, ylo, yhi, zlo, zhi, box[5]
+        return xlo, xhi, ylo, yhi, zlo, zhi
     
     def __get_pe_per_atom__(self,) -> tuple:
        sort_indices = np.argsort(self.__get_atom_identificators__())
@@ -99,9 +138,9 @@ class LammpsCommunicator():
         x_min, x_max, y_min, y_max, z_min, z_max = borders
         positions = self.__get_positions__()
         mask = (
-            (positions[:, 0] >= x_min - 0.1) & (positions[:, 0] <= x_max + 0.1) &
-            (positions[:, 1] >= y_min- 0.1) & (positions[:, 1] <= y_max+ 0.1) &
-            (positions[:, 2] >= z_min- 0.1) & (positions[:, 2] <= z_max+ 0.1)
+            (positions[:, 0] >= x_min) & (positions[:, 0] <= x_max) &
+            (positions[:, 1] >= y_min) & (positions[:, 1] <= y_max) &
+            (positions[:, 2] >= z_min) & (positions[:, 2] <= z_max)
         )
         identificators = self.__get_atom_identificators__()[np.where(mask)[0]]
         return identificators
