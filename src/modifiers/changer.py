@@ -40,12 +40,6 @@ class DynamicChanger():
         """
         affirmative. execute acceleration.
         """
-        # if self.iter_number != TIME_WINDOW:
-
-            # self.snapshots_positions.append(self.communicator.__get_positions__())
-            # self.iter_number += 1
-            # return
-
         self.iter_number = 0
         self.extractor.set_communicator(lammps_instance)
 
@@ -63,17 +57,15 @@ class DynamicChanger():
             atoms_to_change_with_particles_2, positions_to_spawn_atoms = self.extractor.get_data_of_cells_to_granulate()
 
         ids_to_delete = np.concatenate([atoms_to_change_with_particles_1, atoms_to_change_with_particles_2])
-        self.extractor.get_lammps_instance().command("write_dump all custom TEST_PPP.crack_GRAIN.lammpstrj id type x y z modify append yes")
+        self.extractor.get_lammps_instance().command("write_dump all custom records/TEST_images.lammpstrj id type x y z modify append yes")
 
         self.extractor.get_lammps_instance().command(f"group to_delete id {' '.join(list(map(str, ids_to_delete.astype(int))))}")
         self.extractor.get_lammps_instance().command(f"delete_atoms group to_delete")
         self.extractor.get_lammps_instance().command(f"group to_delete delete")
-        # 1. Compute distances for all pairs within the force cutoff
-        
 
         
         # self.extractor.get_lammps_instance().command(f"velocity all set 10")
-        self.extractor.get_lammps_instance().command("write_dump all custom TEST_PPP.crack_GRAIN.lammpstrj id type x y z modify append yes")
+        self.extractor.get_lammps_instance().command("write_dump all custom records/TEST_images.lammpstrj id type x y z modify append yes")
         #TODO velocity set
         if not only_approximate:
             for x,y,z in positions_to_spawn_atoms:
@@ -83,7 +75,7 @@ class DynamicChanger():
             self.extractor.get_lammps_instance().command(f"create_atoms 2 single {x} {y} {z} units box")
 
         # self.extractor.get_lammps_instance().command(f"delete_atoms overlap 0.1 all all")
-        self.extractor.get_lammps_instance().command("write_dump all custom TEST_PPP.crack_GRAIN.lammpstrj id type x y z modify append yes")
+        self.extractor.get_lammps_instance().command("write_dump all custom records/TEST_images.lammpstrj id type x y z modify append yes")
         # self._lammps_execute().command("minimize 1e-8 1e-8 10000 100000")
 
     def _execute_lammps_replacement_approximation(self, cell_to_granulate : tuple):
