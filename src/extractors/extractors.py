@@ -1,4 +1,5 @@
 import enum
+import types
 from typing import override
 
 import numpy as np
@@ -354,6 +355,11 @@ class FccCellsExtractor(Extractor):
         self.fcc_mega_cells = masks
         return self.fcc_mega_cells 
     
+    def __safe_unique_ids__(self, ids_to_delete):
+        if not ids_to_delete or len(ids_to_delete) == 0:
+            return np.array([], dtype=int)
+        return np.unique(np.concatenate(ids_to_delete).flatten()).astype(int)
+    
     def get_cells_to_apply_action(self):
         self.clear_extractor()
 
@@ -379,7 +385,7 @@ class FccCellsExtractor(Extractor):
                 self.fcc_cell_to_granulate.append(fcc_cell)
             
             if self.smoke_test == RANDOM_CONDITION:
-                if random.random() > 0.8 and np.all(types_in_cell == 1): # TODO: checkup!
+                if random.random() > 0.8 and np.all(types_in_cell == 1):
                     self.fcc_cell_to_approximate.append(fcc_cell)
                 elif random.random() > 0.5 and np.all(types_in_cell == 2):
                     self.fcc_cell_to_granulate.append(fcc_cell)
@@ -412,7 +418,8 @@ class FccCellsExtractor(Extractor):
         ids_atoms_to_change_with_particles = np.array(ids_tochange_with).flatten()
         mask = np.any(np.array(positions_of_large), axis=0)
 
-        return np.unique(np.concatenate(ids_to_delete).flatten()).astype(int), positions[mask]
+
+        return self.__safe_unique_ids__(ids_to_delete), positions[mask]
 
     def get_data_of_cells_to_granulate(self,):
         identificators = self.lammps_extractor.__get_atom_identificators__()
@@ -425,7 +432,7 @@ class FccCellsExtractor(Extractor):
 
         for cell in self.fcc_cell_to_granulate:
             # assert np.sum(cell & self.first_level_mask) == 4 == len(identificators[cell & self.first_level_mask])
-            ids_tochange_with.append(np.where(cell)[0])
+            ids_tochange_with.append(np.where(cell)[0]+1)
 
             idx = np.argmin(self.z_group_decomposition[cell & self.first_level_mask][:, 0])
 
@@ -436,7 +443,9 @@ class FccCellsExtractor(Extractor):
             else:
                 positions_to_spawn = np.concatenate([positions_to_spawn, (self.basis @ (self.template_of_filling + min_point).T).T])
 
-        return np.unique(np.array(ids_tochange_with).flatten()).astype(int), positions_to_spawn
+        # assert len(positions_to_spawn) % 32 == 0, f'NO! The number of positions is {len(positions_to_spawn)}!' 
+        assert len(self.__safe_unique_ids__(ids_tochange_with)) % 4 ==0, f'FUCK: the number of units to be deleted is {len(self.__safe_unique_ids__(ids_tochange_with))}, and spawn is {len(positions_to_spawn)}'
+        return self.__safe_unique_ids__(ids_tochange_with), positions_to_spawn
 
     @override
     def extract_interesting_regions(
