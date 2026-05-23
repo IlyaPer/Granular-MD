@@ -253,7 +253,7 @@ class TestFccCellsExtraction2x2(unittest.TestCase):
         # self.xlo, self.xhi, self.ylo, self.yhi, self.zlo, self.zhi = (
         #     self.communicator.__get_box_size__()
         # )
-        solver = FccCellsExtractor(self.communicator, 3.52, scale_factor=2, smoke_test=RANDOM_CONDITION)
+        solver = FccCellsExtractor(self.communicator, 3.52, scale_factor=2, smoke_test=GRANULATE)
         dc = DynamicChanger(
             self.communicator, solver, 3.52, 3.52*2, scale_factor=2, baby_mode=True
         )
@@ -285,7 +285,7 @@ class TestFccCellsExtraction2x2(unittest.TestCase):
         final_mass = self.communicator2.get_total_mass()
         self.L.command("run 1500")
 
-        self.assertLess(abs(1 - initial_mass / final_mass)*100, 5, f"Law of masses is not satisfied! The error is {np.round(abs(1 - initial_mass / final_mass)*100)}%. Initial mass is {initial_mass}, final is {final_mass}")
+        self.assertLess(abs(1 - initial_mass / final_mass)*100, 1, f"Law of masses is not satisfied! The error is {np.round(abs(1 - initial_mass / final_mass)*100)}%. Initial mass is {initial_mass}, final is {final_mass}")
 
     def test_random_condition_approximation_granulation(self):
         """
@@ -296,32 +296,36 @@ class TestFccCellsExtraction2x2(unittest.TestCase):
         4) start over again 
         """
 
-        self.communicator = LammpsCommunicator(self.L)
+        L = self.L
 
-        initial_mass = self.communicator.get_total_mass()
-        # self.xlo, self.xhi, self.ylo, self.yhi, self.zlo, self.zhi = (
-        #     self.communicator.__get_box_size__()
-        # )
-        solver = FccCellsExtractor(self.communicator, 3.52, scale_factor=2, smoke_test=RANDOM_CONDITION)
+        communicator = LammpsCommunicator(L)
+
+        initial_mass = communicator.get_total_mass()
+
+        solver = FccCellsExtractor(communicator, 3.52, scale_factor=2, smoke_test=RANDOM_CONDITION)
         dc = DynamicChanger(
             self.communicator, solver, 3.52, 3.52*2, scale_factor=2, baby_mode=True
         )
 
-        dc.accelerate(self.L)
-        self.L.command("run 1500")
-        interval_mass = self.communicator.get_total_mass()
+        for idx_iteration in range(10):
+            dc.accelerate(L)
+            L = dc.communicator.get_instance()
 
-        self.assertLess(abs(1 - initial_mass / interval_mass)*100, 5, f"Law of masses is not satisfied! The error is {np.round(abs(1 - initial_mass / interval_mass)*100)}%. Initial mass is {initial_mass}, final is {interval_mass}")
+            L.command("run 1500")
+            L.command("reset_atoms id sort yes")
+            communicator = LammpsCommunicator(L) 
+            solver = FccCellsExtractor(communicator, 3.52, scale_factor=2, smoke_test=RANDOM_CONDITION)
+            dc = DynamicChanger(
+                communicator, solver, 3.52, 3.52*2, scale_factor=2, baby_mode=True
+            )
 
-        dc.accelerate(self.L)
-        final_mass = self.communicator.get_total_mass()
-        self.L.command("run 1500")
+            current_mass = communicator.get_total_mass()
 
-        self.assertLess(abs(1 - initial_mass / final_mass)*100, 5, f"Law of masses is not satisfied! The error is {np.round(abs(1 - initial_mass / final_mass)*100)}%. Initial mass is {initial_mass}, final is {final_mass}")
+            #TODO CHECK LAW OF MASSES!!!
+            self.assertLess(abs(1 - initial_mass / current_mass)*100, 1, f"Law of masses is not satisfied on iteration {idx_iteration}! The error is {np.round(abs(1 - initial_mass / current_mass)*100)}%. Initial mass is {initial_mass}, final is {current_mass}.")
 
-        for i in range(10):
-            dc.accelerate(self.L)
-            self.L.command("run 1500")
+        return
+
 
 class RandomConditionTest(unittest.TestCase):
 
