@@ -57,6 +57,10 @@ class DynamicChanger():
             atoms_to_change_with_particles_2, positions_to_spawn_atoms = self.extractor.get_data_of_cells_to_granulate()
 
         ids_to_delete = np.concatenate([atoms_to_change_with_particles_1, atoms_to_change_with_particles_2])
+
+        if len(ids_to_delete) == 0:
+            return
+
         self.extractor.get_lammps_instance().command("write_dump all custom records/TEST_images.lammpstrj id type x y z modify append yes")
 
         self.extractor.get_lammps_instance().command(f"group to_delete id {' '.join(list(map(str, ids_to_delete.astype(int))))}")
