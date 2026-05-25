@@ -9,7 +9,7 @@ from ase.io import read
 from ase import units
 import os
 from ase.io import write
-from sklearn.cluster import MeanShift
+from scipy.spatial import cKDTree
 from ase.build import bulk
 import matplotlib.pyplot as plt
 import numpy as np
@@ -360,6 +360,15 @@ class FccCellsExtractor(Extractor):
             return np.array([], dtype=int)
         return np.unique(np.concatenate(ids_to_delete).flatten()).astype(int)
     
+    def _check_overlapping_atoms(self, positions_to_spawn, positions, min_distance=0.1):
+        if len(positions) == 0:
+            return True
+    
+        tree = cKDTree(positions)
+        distances, _ = tree.query(positions_to_spawn, k=1)
+        
+        return np.all(distances >= min_distance)
+    
     def get_cells_to_apply_action(self):
         self.clear_extractor()
 
@@ -376,6 +385,9 @@ class FccCellsExtractor(Extractor):
             #     continue
             atoms_in_cell = pe_per_atom[fcc_cell]
             types_in_cell = atom_types[fcc_cell]
+            if (len(pe_per_atom[fcc_cell]) == 0) or len(pe_per_atom[fcc_cell]) % 4 != 0:
+                continue
+
             mean_pe = np.mean(atoms_in_cell)
 
             if self.smoke_test == APPROXIMATE:
@@ -391,9 +403,9 @@ class FccCellsExtractor(Extractor):
                     self.fcc_cell_to_granulate.append(fcc_cell)
 
             if self.smoke_test == INFERENCE:
-                if mean_pe < -3 and np.all(types_in_cell == 1):
+                if np.all(atoms_in_cell < self.LOWER_THRESHOLD) and np.all(types_in_cell == 1):
                     self.fcc_cell_to_approximate.append(fcc_cell)
-                elif mean_pe > -1 and np.all(types_in_cell == 2):
+                elif np.all(atoms_in_cell > self.UPPER_THRESHOLD) and np.all(types_in_cell == 2):
                     self.fcc_cell_to_granulate.append(fcc_cell)     
     
     def get_data_of_cells_to_approximate(self,):
@@ -419,33 +431,41 @@ class FccCellsExtractor(Extractor):
         mask = np.any(np.array(positions_of_large), axis=0)
 
 
+
+
         return self.__safe_unique_ids__(ids_to_delete), positions[mask]
 
     def get_data_of_cells_to_granulate(self,):
         identificators = self.lammps_extractor.__get_atom_identificators__()
+        positions = self.lammps_extractor.__get_positions__()
 
         if self.z_group_decomposition is None:
             self.z_group_decomposition = self.get_basis_decompostion()
 
         ids_tochange_with = []
-        positions_to_spawn = np.array([])
+        all_positions_to_spawn = np.array([])
 
         for cell in self.fcc_cell_to_granulate:
             # assert np.sum(cell & self.first_level_mask) == 4 == len(identificators[cell & self.first_level_mask])
             ids_tochange_with.append(np.where(cell)[0]+1)
 
-            idx = np.argmin(self.z_group_decomposition[cell & self.first_level_mask][:, 0])
+            idx = np.argmin(self.z_group_decomposition[cell][:, 0]) #cell & self.first_level_mask
 
-            min_point = self.z_group_decomposition[cell & self.first_level_mask][idx]
+            min_point = self.z_group_decomposition[cell][idx] #cell & self.first_level_mask
 
-            if len(positions_to_spawn) == 0:
-                positions_to_spawn = (self.basis @ (self.template_of_filling + min_point).T).T
+            positions_to_spawn = (self.basis @ (self.template_of_filling + min_point).T).T
+
+            if not self._check_overlapping_atoms(positions_to_spawn, positions[~cell]):
+                continue
+
+            if len(all_positions_to_spawn) == 0:
+                all_positions_to_spawn = positions_to_spawn
             else:
-                positions_to_spawn = np.concatenate([positions_to_spawn, (self.basis @ (self.template_of_filling + min_point).T).T])
+                all_positions_to_spawn = np.concatenate([all_positions_to_spawn, positions_to_spawn])
 
         # assert len(positions_to_spawn) % 32 == 0, f'NO! The number of positions is {len(positions_to_spawn)}!' 
         assert len(self.__safe_unique_ids__(ids_tochange_with)) % 4 ==0, f'FUCK: the number of units to be deleted is {len(self.__safe_unique_ids__(ids_tochange_with))}, and spawn is {len(positions_to_spawn)}'
-        return self.__safe_unique_ids__(ids_tochange_with), positions_to_spawn
+        return self.__safe_unique_ids__(ids_tochange_with), all_positions_to_spawn
 
     @override
     def extract_interesting_regions(
