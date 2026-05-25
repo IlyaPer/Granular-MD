@@ -1,0 +1,60 @@
+units           metal
+dimension	    3
+boundary	    s s s
+atom_style	    atomic
+neighbor	    0.3 bin
+neigh_modify    delay 0 check yes
+
+variable        lattice_constant equal 7.04
+variable        inital_length equal 20*${lattice_constant}
+variable        delta_y equal 0.00025
+
+lattice		    fcc 3.52
+region		    box block 0 6 0 6 0 6 units lattice
+create_box	    2 box
+create_atoms	1 box
+
+#pair_style      none
+pair_style       lj/cut 8.0
+
+pair_coeff 1 1 0.5203 2.282
+pair_coeff 2 2 0.05 2.338 2.625
+pair_coeff 1 2 0.01 2.8 3.1428
+
+mass		    1 58.6934
+mass            2 469.5472
+
+
+region          crack block INF 7 9 12 0 INF units lattice
+
+#velocity        all create 50 4928459
+minimize        1.0e-8 1.0e-8 10000 100000
+#fix             1 all nvt temp 100 150 100.0
+#run             10000
+#unfix           1
+
+ 
+region          top block INF INF 18 INF INF INF units lattice
+region          bot block INF INF INF 2 INF INF units lattice
+group           top region top
+group           bot region bot
+group           boundary union top bot
+group           mobile subtract all boundary
+#velocity	    mobile create 0.01 887723 temp new
+
+
+compute         stress_atom all stress/atom NULL
+compute         pe_atom all pe/atom
+variable        vol_avg equal "vol / count(all)"
+variable        stressx atom "c_stress_atom[1] / v_vol_avg * 160.218"
+variable        vonMises atom "sqrt( ((c_stress_atom[1]-c_stress_atom[2])^2 + (c_stress_atom[2]-c_stress_atom[3])^2 + (c_stress_atom[3]-c_stress_atom[1])^2 + 6*(c_stress_atom[4]^2 + c_stress_atom[5]^2 + c_stress_atom[6]^2)) / 2 ) / v_vol_avg * 160.218"
+dump            1 all custom 250 records/TEST_3x3.lammpstrj id type x y z c_pe_atom
+dump_modify     1 sort id
+
+
+#fix             my_deform all deform 1 y erate 0.001 units box remap v
+run 100
+thermo_modify   lost ignore
+#write_dump      all custom records/TEST_3x3.lammpstrj id type x y z c_pe_atom modify append yes
+#run 500
+#run 12000
