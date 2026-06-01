@@ -63,7 +63,7 @@ class DynamicChanger():
         
         #=========== Delete extra atoms from simulation ===============
 
-        self.extractor.get_lammps_instance().command("write_dump all custom records/TEST_images.lammpstrj id type x y z modify append yes")
+        # self.extractor.get_lammps_instance().command("write_dump all custom records/TEST_images.lammpstrj id type x y z modify append yes")
 
         self.extractor.get_lammps_instance().command(f"group to_delete id {' '.join(list(map(str, ids_to_delete.astype(int))))}")
         self.extractor.get_lammps_instance().command(f"delete_atoms group to_delete")
@@ -90,15 +90,15 @@ class DynamicChanger():
             self.extractor.get_lammps_instance().command(f"create_atoms 2 single {x} {y} {z} units box")
 
 
-        self.extractor.get_lammps_instance().command(f"group scale_1_atoms type 1")
-        self.extractor.get_lammps_instance().command(f"group scale_2_atoms type 2")
+        # self.extractor.get_lammps_instance().command(f"group scale_1_atoms type 1")
+        # self.extractor.get_lammps_instance().command(f"group scale_2_atoms type 2")
         
-        self.extractor.get_lammps_instance().command(f"neigh_modify exclude group scale_1_atoms scale_2_atoms")
+        # self.extractor.get_lammps_instance().command(f"neigh_modify exclude group scale_1_atoms scale_2_atoms")
 
         # self.extractor.get_lammps_instance().command(f"delete_atoms overlap 0.1 all all")
         # self.extractor.get_lammps_instance().command("minimize  1.0e-8 1.0e-8 10000 100000")
         # self.extractor.get_lammps_instance().command("velocity all create 300.0 54321 rot yes")
-        self.extractor.get_lammps_instance().command("write_dump all custom records/TEST_images.lammpstrj id type x y z modify append yes")
+        # self.extractor.get_lammps_instance().command("write_dump all custom records/TEST_images.lammpstrj id type x y z modify append yes")
         # self._lammps_execute().command("minimize 1e-8 1e-8 10000 100000")
 
         

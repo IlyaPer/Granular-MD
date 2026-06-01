@@ -50,7 +50,7 @@ class TestFccCellsExtractionSimple(unittest.TestCase):
         )
         self.solver = FccCellsExtractor(self.communicator, A, scale_factor=2, smoke_test=APPROXIMATE)
         self.dc = DynamicChanger(
-            self.communicator, self.solver, A, A_CG, scale_factor=2, baby_mode=True
+            self.communicator, self.solver, A, scale_factor=2, baby_mode=True
         )
 
     def test_extract_fcc_cells_basis_decomposition(self):
@@ -141,7 +141,7 @@ class TestFccCellsExtractionSimple(unittest.TestCase):
         # )
         solver = FccCellsExtractor(self.communicator, 3.52, scale_factor=2, smoke_test=23920932)
         dc = DynamicChanger(
-            self.communicator, solver, 3.52, 3.52*2, scale_factor=2, baby_mode=True
+            self.communicator, solver, 3.52, scale_factor=2, baby_mode=True
         )
         solver.get_basis_decompostion()
 
@@ -177,7 +177,7 @@ class TestFccCellsExtraction2x2(unittest.TestCase):
         )
         self.solver = FccCellsExtractor(self.communicator, A, smoke_test=APPROXIMATE, scale_factor=2)
         self.dc = DynamicChanger(
-            self.communicator, self.solver, A, A_CG, scale_factor=2, baby_mode=True
+            self.communicator, self.solver, A, scale_factor=2, baby_mode=True
         )
 
     def test_simple_split_many_cells(self):
@@ -255,7 +255,7 @@ class TestFccCellsExtraction2x2(unittest.TestCase):
         # )
         solver = FccCellsExtractor(self.communicator, 3.52, scale_factor=2, smoke_test=GRANULATE)
         dc = DynamicChanger(
-            self.communicator, solver, 3.52, 3.52*2, scale_factor=2, baby_mode=True
+            self.communicator, solver, 3.52, scale_factor=2, baby_mode=True
         )
 
         dc.accelerate(self.L, only_granulate=True)
@@ -284,7 +284,7 @@ class TestFccCellsExtraction2x2(unittest.TestCase):
 
         solver = FccCellsExtractor(communicator, 3.52, scale_factor=2, smoke_test=RANDOM_CONDITION)
         dc = DynamicChanger(
-            self.communicator, solver, 3.52, 3.52*2, scale_factor=2, baby_mode=True
+            self.communicator, solver, 3.52,scale_factor=2, baby_mode=True
         )
 
         for idx_iteration in range(10):
@@ -296,7 +296,7 @@ class TestFccCellsExtraction2x2(unittest.TestCase):
             communicator = LammpsCommunicator(L) 
             solver = FccCellsExtractor(communicator, 3.52, scale_factor=2, smoke_test=RANDOM_CONDITION)
             dc = DynamicChanger(
-                communicator, solver, 3.52, 3.52*2, scale_factor=2, baby_mode=True
+                communicator, solver, 3.52, scale_factor=2, baby_mode=True
             )
 
             current_mass = communicator.get_total_mass()
@@ -324,7 +324,7 @@ class TestFccCellsExtraction3x3_with_NPT_and_CRACK(unittest.TestCase):
         )
         self.solver = FccCellsExtractor(self.communicator, A, smoke_test=APPROXIMATE, scale_factor=2)
         self.dc = DynamicChanger(
-            self.communicator, self.solver, A, A_CG, scale_factor=2, baby_mode=True
+            self.communicator, self.solver, A, scale_factor=2, baby_mode=True
         )
 
     def test_random_condition_no_physics(self):
@@ -344,7 +344,7 @@ class TestFccCellsExtraction3x3_with_NPT_and_CRACK(unittest.TestCase):
 
         solver = FccCellsExtractor(communicator, 3.52, scale_factor=2, smoke_test=APPROXIMATE)
         dc = DynamicChanger(
-            self.communicator, solver, 3.52, 3.52*2, scale_factor=2, baby_mode=True
+            self.communicator, solver, 3.52, scale_factor=2, baby_mode=True
         )
 
         for idx_iteration in range(10):
@@ -356,7 +356,7 @@ class TestFccCellsExtraction3x3_with_NPT_and_CRACK(unittest.TestCase):
             communicator = LammpsCommunicator(L) 
             solver = FccCellsExtractor(communicator, 3.52, scale_factor=2, smoke_test=RANDOM_CONDITION)
             dc = DynamicChanger(
-                communicator, solver, 3.52, 3.52*2, scale_factor=2, baby_mode=True
+                communicator, solver, 3.52, scale_factor=2, baby_mode=True
             )
 
             current_mass = communicator.get_total_mass()
@@ -386,7 +386,7 @@ class TestFccCellsExtraction3x3_with_NPT_and_CRACK(unittest.TestCase):
 
         solver = FccCellsExtractor(communicator, 3.52, scale_factor=2, smoke_test=APPROXIMATE)
         dc = DynamicChanger(
-            self.communicator, solver, 3.52, 3.52*2, scale_factor=2, baby_mode=True
+            self.communicator, solver, 3.52, scale_factor=2, baby_mode=True
         )
         dc.accelerate(L)
         L.command("run 8000")

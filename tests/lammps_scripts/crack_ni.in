@@ -65,12 +65,13 @@ dump_modify     1 sort id
 
 
 fix             1 all nve
-#fix		        2 boundary setforce NULL 0.0 0.0
+fix		        2 boundary setforce NULL 0.0 0.0
 #velocity        top set 0.0 0.1 0.0
 #velocity	    mobile ramp vy 0.0 0.1 y 2 18 sum yes
 #velocity        bot set 0.0 -0.1 0.0
 
-fix             2 all deform 1000 y scale 1.15 units box remap v
+variable        erate equal 5e-2
+fix             def all deform 1 y erate ${erate} units box
 thermo_modify   lost ignore
 
 run             250

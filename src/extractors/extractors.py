@@ -158,7 +158,6 @@ class FccCellsExtractor(Extractor):
         lammps_extractor: LammpsCommunicator,
         lattice_contant: float,
         scale_factor : int,
-        lattice_constant_cg=7.04,
         lower_threshold=-2.5, # approximates
         upper_threshold=-0.7, # granulates
         smoke_test = INFERENCE,
@@ -178,14 +177,10 @@ class FccCellsExtractor(Extractor):
         self.lattice_constant = lattice_contant
         a = lattice_contant
 
-        self.cell_size = (
-            self.lattice_constant * 2.0
-        )  # Accept a) Fluctuations b) Intersections?
-
         self.LOWER_THRESHOLD = lower_threshold
         self.UPPER_THRESHOLD = upper_threshold
 
-        self.lattice_constant_cg = lattice_constant_cg
+        self.lattice_constant_cg = lattice_contant * scale_factor
 
         self.cells_to_approximate = []
         self.rogue_cells = []
@@ -313,16 +308,8 @@ class FccCellsExtractor(Extractor):
         self.first_level_mask = np.all(self.z_group_decomposition % scale_factor == 0, axis=1) # & (np.sum(coeffs, axis=1) % 3 == 0)
         self.first_level_mask_basis = np.sum(self.z_group_decomposition,axis=1) % (scale_factor*2) == 0
         # assert np.sum(self.first_level_mask) % len(coeffs) // (2*scale_factor)**3, f"What the FUCK? Found {len(self.z_group_symmetry[self.first_level_mask])} instead of expected {len(coeffs) // scale_factor**3}. Fix this shit NOW!"
-        # These are atoms to be removed! 
         self.second_level_mask = ~self.first_level_mask
 
-        # one mega fcc cell
-        
-        # assert len(self.template_of_filling) == 32 
- 
-        # Generate masks of fcc megacells, size of scale_factor
-        # coeffs_atoms = coeffs[atom_types == 1]
-        # coeffs_particles = coeffs[atom_types == 2]
 
         if scale_factor == 1:
             number_of_cells = self.z_group_decomposition[:, 1].max() // 2
@@ -332,10 +319,6 @@ class FccCellsExtractor(Extractor):
         # if scale_factor != 1:
         step = (scale_factor*2) ## ADD BUFFER. SO EVERY BUFFER IS A PHANTOM
         scaled = (self.z_group_decomposition / (1 + scale_factor))
-        scaled = self.z_group_decomposition
-        # else:
-        #     step = 1
-        #     scaled = self.z_group_decomposition
 
         n_cells = int(number_of_cells)
         masks = []
@@ -405,9 +388,7 @@ class FccCellsExtractor(Extractor):
         self.fcc_cell_to_approximate = []
         self.fcc_cell_to_granulate = []
 
-        for fcc_cell in self.fcc_mega_cells:  # fcc_cell is a boolean mask of shape (N,)
-            # if ((len(atom_types[fcc_cell]) != NUMBER_OF_ATOMS_IN_FCC_CELL*self.scale_factor**3) or (len(atom_types[fcc_cell]) == NUMBER_OF_ATOMS_IN_FCC_CELL)):
-            #     continue
+        for fcc_cell in self.fcc_mega_cells:
             atoms_in_cell = pe_per_atom[fcc_cell]
             types_in_cell = atom_types[fcc_cell]
             if (len(pe_per_atom[fcc_cell]) == 0) or len(pe_per_atom[fcc_cell]) % 4 != 0:
@@ -443,25 +424,18 @@ class FccCellsExtractor(Extractor):
         phantom_atoms = []
 
         for cell in self.fcc_cell_to_approximate:
-            # if len(identificators[cell & self.first_level_mask]) != 8:
-            #     continue
-            # assert np.sum(cell & self.first_level_mask) == NUMBER_OF_ATOMS_IN_FCC_CELL
-            # ids_tochange_with.append(identificators[(cell & self.first_level_mask)])
-            # ids_tochange_with.append(np.where((cell & self.first_level_mask))[0]+1)
             positions_of_large.append(cell & self.first_level_mask & self.first_level_mask_basis)
-            # assert np.sum(cell & self.second_level_mask) == 56 == len(identificators[cell & self.second_level_mask])
-            # ids_to_delete.append(identificators[cell & self.second_level_mask])
             ids_to_delete.append(np.where(cell)[0]+1)
 
 
-        if add_phantom_layer:
-            phantom_atoms = self._add_phantom_layer_of_atoms(self.fcc_cell_to_approximate)
+        # if add_phantom_layer:
+        #     phantom_atoms = self._add_phantom_layer_of_atoms(self.fcc_cell_to_approximate)
         ids_atoms_to_change_with_particles = np.array(ids_tochange_with).flatten()
         mask = np.any(np.array(positions_of_large), axis=0)
 
-        positions_of_large_and_phantom = np.concatenate([positions[positions_of_large], positions[phantom_atoms]+ 0.01])
+        # positions_of_large_and_phantom = np.concatenate([positions[positions_of_large], positions[phantom_atoms]+ 0.01])
 
-        return self.__safe_unique_ids__(ids_to_delete), phantom_atoms, positions_of_large_and_phantom
+        return self.__safe_unique_ids__(ids_to_delete), positions[mask]
 
     def get_data_of_cells_to_granulate(self, add_phantom_layer=True):
         identificators = self.lammps_extractor.__get_atom_identificators__()
@@ -474,11 +448,10 @@ class FccCellsExtractor(Extractor):
         all_positions_to_spawn = np.array([])
         phantom_atoms = []
 
-        if add_phantom_layer:
-            phantom_atoms = self._add_phantom_layer_of_atoms(self.fcc_cell_to_approximate)
+        # if add_phantom_layer:
+        #     phantom_atoms = self._add_phantom_layer_of_atoms(self.fcc_cell_to_approximate)
 
         for cell in self.fcc_cell_to_granulate:
-            # assert np.sum(cell & self.first_level_mask) == 4 == len(identificators[cell & self.first_level_mask])
             ids_tochange_with.append(np.where(cell)[0]+1)
 
             idx = np.argmin(self.z_group_decomposition[cell][:, 0]) #cell & self.first_level_mask
@@ -497,7 +470,7 @@ class FccCellsExtractor(Extractor):
 
         # assert len(positions_to_spawn) % 32 == 0, f'NO! The number of positions is {len(positions_to_spawn)}!' 
         assert len(self.__safe_unique_ids__(ids_tochange_with)) % 4 ==0, f'FUCK: the number of units to be deleted is {len(self.__safe_unique_ids__(ids_tochange_with))}, and spawn is {len(positions_to_spawn)}'
-        return self.__safe_unique_ids__(ids_tochange_with), all_positions_to_spawn, phantom_atoms
+        return self.__safe_unique_ids__(ids_tochange_with), all_positions_to_spawn
 
     @override
     def extract_interesting_regions(

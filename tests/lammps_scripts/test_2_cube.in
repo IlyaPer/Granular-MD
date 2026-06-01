@@ -23,9 +23,9 @@ pair_style      lj/cut 7.5
 #pair_coeff      1 2 0.4713 3.42
 #pair_coeff      2 2 1.3333 4.56
 
-pair_coeff      1 1 0.5  2.28
-pair_coeff      2 2 0.01 4.56   
-pair_coeff      1 2 0.001 3.42
+pair_coeff      * * 0.5  2.28
+#pair_coeff      2 2 0.01 4.56   
+#pair_coeff      1 2 0.001 3.42
 
 mass		    1 58.6934
 mass            2 469.5472

@@ -2,142 +2,59 @@ from lammps import lammps
 import numpy as np
 import argparse
 import logging
-import src.atoms_extractor as ae
-from build.monitor import ResourceMonitor 
+from src.extractors.extractors import INFERENCE, RANDOM_CONDITION, FccCellsExtractor
+from src.modifiers.changer import DynamicChanger
+from src.utils.utils import LammpsCommunicator
 
 parser = argparse.ArgumentParser(
-    prog="Heating_Aurum",
-    description="heating aurum",
+    prog="fast lammps package",
+    description="acceleration molecular dynamics with dynamic coarse-graining",
     epilog="Text at the bottom of help",
 )
 
 parser.add_argument("-f", "--file")
-parser.add_argument("-k", "--scale")
-parser.add_argument("-i", "--iteration")
+parser.add_argument("-a", "--mass_scale_factor")
+parser.add_argument("-b", "--symmetry_extending_factor")
+parser.add_argument("-c", "--potential_scale_factor")
 parser.add_argument("-m", "--measure_frequency")
 parser.add_argument("-l", "--log_interval")
-parser.add_argument("-d", "--delete_layer")
-parser.add_argument("--solver")
+parser.add_argument("--accelerate")
+parser.add_argument("--smoke_test")
+parser.add_argument("-i", "--max_iter")
+parser.add_argument("--symmetry")
+parser.add_argument("--lattice_constant")
+parser.add_argument("--max_granulate_factor")
 
 args = parser.parse_args()
 
 logging.basicConfig(
-    filename="logs/dynamic_coarse_graining.log",
+    filename="records/fast_lammps_run_DATE.log", # TODO: set date
     filemode="w",
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 
-SCALE_FACTOR = int(args.scale)
-iteration = int(args.iteration)
-measure_frequency = int(args.measure_frequency)
 
-sigma_for_gold = 4.08 * (3.6 / 2.33) ** (-1)
-SIGMA = sigma_for_gold  # Scaling for sigma
-A = SIGMA * (3.6 / 2.33)
+lmp = lammps()
 
+lmp.file(args.file)
 
-def compute_params_CG(scale_factor):
-    sigma_for_gold = 4.08 * (3.6 / 2.33) ** (-1)
-    SIGMA = sigma_for_gold  # Scaling for sigma
+args.smoke_test = RANDOM_CONDITION
 
-    ATOMIC_UNIT_MASS = 196.196 * 3  # Scaling for masses
-    EPSILON = 0.4  # * (scale_factor**3) # Scaling for masses
-
-    A = SIGMA * (3.6 / 2.33) * scale_factor
-    return SIGMA, A, EPSILON, ATOMIC_UNIT_MASS
-
-L = lammps()
-solver = ae.ExampleLayerExtractor()
-
-SIGMA_CG, A_CG, EPSILON_CG, ATOMIC_UNIT_MASS_CG = compute_params_CG(SCALE_FACTOR)
-
-logging.info(
-    f"Sigma {SIGMA_CG}, Lattice {A_CG}, eps {EPSILON_CG}, Mass {ATOMIC_UNIT_MASS_CG}"
-)
-
-L.file(args.file) # setup only, no dynamics run
+communicator = LammpsCommunicator(lmp)
+solver = FccCellsExtractor(communicator, float(args.lattice_constant), smoke_test=args.smoke_test, scale_factor=int(args.symmetry_extending_factor))
+dc = DynamicChanger(communicator, solver, float(args.lattice_constant), scale_factor=int(args.symmetry_extending_factor), baby_mode=False)
 
 
-block = f"""
-pair_coeff      1 2 0.0 1.0
-pair_coeff      2 2 {EPSILON_CG} {SIGMA_CG}
-mass            2 {ATOMIC_UNIT_MASS_CG}
-lattice         fcc {A_CG}
-change_box      all z scale 1.2
-"""
+iteration = 0
+while iteration < int(args.max_iter):
+    dc.accelerate(lmp)
+    lmp = dc.communicator.get_instance()
+    lmp.command(f"run {int(args.measure_frequency)}")
 
-L.commands_string(block)
-
-
-logging.info("The simulation started successfully.")
-iter = 0
-
-
-
-while iter < iteration:
-    logging.info(
-        f"============================= STEP NUMBER {iter} ============================= "
+    communicator = LammpsCommunicator(lmp)
+    solver = FccCellsExtractor(communicator, 3.52, scale_factor=2, smoke_test=RANDOM_CONDITION)
+    dc = DynamicChanger(
+        communicator, solver, 3.52, scale_factor=2, baby_mode=True
     )
-
-    # L.command("reset_atoms id sort yes")
-    L.cmd.run(measure_frequency)
-
-    natoms = lammps.get_natoms(L)
-
-    nlocal = L.extract_global("nlocal") # the number of atoms owned by the current processor in a parallel simulation
-    raw_ids = L.numpy.extract_atom("id")[:nlocal] 
-    raw_pos = L.numpy.extract_atom("x")[:nlocal] 
-    raw_vel = L.numpy.extract_atom("v")[:nlocal]
-    atom_types = L.numpy.extract_atom("type")[:nlocal]
-    masses_types = L.numpy.extract_atom("mass")
-
-
-    idx = np.argsort(raw_ids) # get sorted by id bunch of atoms
-    # positions = raw_pos[idx]
-    # velocities = raw_vel[idx]
-    # atom_types = atom_types[idx]
-    positions = raw_pos
-    velocities = raw_vel
-    atom_types = atom_types
-    natoms = nlocal
-
-    logging.info(f"{atom_types[:10]}")
-    logging.info(f"masses_types: {masses_types}")
-    masses = np.array([masses_types[i] for i in atom_types]) 
-
-
-    logging.info(f"masses >200: {masses[masses>200]}")
-    logging.info(f"masses : {masses.shape}")
-    logging.info(f"velocities : {velocities.shape}")
-
-    masks_to_grain = solver.extract_interesting_regions(
-        positions,velocities,masses,lattice_constant=A, lattice_constant_cg=A_CG
-    )
-
-    if (len(masks_to_grain) == 0) and (iter > 10000):
-        logging.info(f"GRAINING OF ALL LAYERS IS COMPLETE. STOP.")
-        break
-
-    for i, tuple_info in enumerate(masks_to_grain): 
-        mask, positions_of_grained = tuple_info
-
-        mask = raw_ids[mask]
-
-        string_of_ids = " ".join(map(str, mask))
-
-        L.command(f"group delete_group id {string_of_ids}")
-        L.command(f"delete_atoms group delete_group")
-        L.command(f"group delete_group delete")
-
-        #topology set
-        for atom_position in positions_of_grained:
-            atom_position = " ".join(map(str, atom_position))
-            L.command(f'create_atoms 2 single {atom_position} units box')
-            logging.info(f"Создаю атом тут: {atom_position}")
-
-        L.command("reset_atoms id")
-        break
-
-    L.command("run 0")
-    iter += measure_frequency
+    iteration += int(args.measure_frequency)
