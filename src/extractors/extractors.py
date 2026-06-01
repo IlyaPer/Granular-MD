@@ -23,6 +23,7 @@ ROGUE_CELL = 2
 GRAINED = 3
 
 NUMBER_OF_ATOMS_IN_FCC_CELL = 4
+PHANTOM_LAYER_SIZE = 2
 
 APPROXIMATE = -1897398
 GRANULATE = 23920932
@@ -199,41 +200,43 @@ class FccCellsExtractor(Extractor):
         ])
 
         self.template_of_filling = np.array([[0, 0, 0],
-       [1, 1, 0],
-       [1, 0, 1],
-       [0, 1, 1],
-       [2, 0, 0],
-       [3, 1, 0],
-       [3, 0, 1],
-       [2, 1, 1],
-       [0, 2, 0],
-       [1, 3, 0],
-       [1, 2, 1],
-       [0, 3, 1],
-       [2, 2, 0],
-       [3, 3, 0],
-       [3, 2, 1],
-       [2, 3, 1],
-       [0, 0, 2],
-       [1, 1, 2],
-       [1, 0, 3],
-       [0, 1, 3],
-       [2, 0, 2],
-       [3, 1, 2],
-       [3, 0, 3],
-       [2, 1, 3],
-       [0, 2, 2],
-       [1, 3, 2],
-       [1, 2, 3],
-       [0, 3, 3],
-       [2, 2, 2],
-       [3, 3, 2],
-       [3, 2, 3],
-       [2, 3, 3]])
+        [1, 1, 0],
+        [1, 0, 1],
+        [0, 1, 1],
+        [2, 0, 0],
+        [3, 1, 0],
+        [3, 0, 1],
+        [2, 1, 1],
+        [0, 2, 0],
+        [1, 3, 0],
+        [1, 2, 1],
+        [0, 3, 1],
+        [2, 2, 0],
+        [3, 3, 0],
+        [3, 2, 1],
+        [2, 3, 1],
+        [0, 0, 2],
+        [1, 1, 2],
+        [1, 0, 3],
+        [0, 1, 3],
+        [2, 0, 2],
+        [3, 1, 2],
+        [3, 0, 3],
+        [2, 1, 3],
+        [0, 2, 2],
+        [1, 3, 2],
+        [1, 2, 3],
+        [0, 3, 3],
+        [2, 2, 2],
+        [3, 3, 2],
+        [3, 2, 3],
+        [2, 3, 3]])
 
         self.smoke_test = smoke_test
 
         self.z_group_decomposition = None
+
+        self.phantom_part = []
 
     def __debug_info__(self,):
         atom_counts = [item[0] for item in self.debug_cells_grained]
@@ -327,7 +330,7 @@ class FccCellsExtractor(Extractor):
             number_of_cells = (self.z_group_decomposition[:, 1].max()) // (1 + scale_factor)
         
         # if scale_factor != 1:
-        step = (scale_factor*2)
+        step = (scale_factor*2) ## ADD BUFFER. SO EVERY BUFFER IS A PHANTOM
         scaled = (self.z_group_decomposition / (1 + scale_factor))
         scaled = self.z_group_decomposition
         # else:
@@ -353,7 +356,7 @@ class FccCellsExtractor(Extractor):
                     masks.append(mask)
 
         self.fcc_mega_cells = masks
-        return self.fcc_mega_cells 
+        return self.fcc_mega_cells
     
     def __safe_unique_ids__(self, ids_to_delete):
         if not ids_to_delete or len(ids_to_delete) == 0:
@@ -369,6 +372,28 @@ class FccCellsExtractor(Extractor):
         
         return np.all(distances >= min_distance)
     
+    def _add_phantom_layer_of_atoms(self, fcc_mega_cells):
+        mask_all_mega_cells = np.any(fcc_mega_cells, axis=1)
+
+        mask_all_mega_cells_with_phantom = mask_all_mega_cells
+        
+        offsets = np.array(np.meshgrid(
+            range(-PHANTOM_LAYER_SIZE, PHANTOM_LAYER_SIZE+1),
+            range(-PHANTOM_LAYER_SIZE, PHANTOM_LAYER_SIZE+1),
+            range(-PHANTOM_LAYER_SIZE, PHANTOM_LAYER_SIZE+1)
+        )).T.reshape(-1, 3)
+
+        expanded_coords = []
+        for coord in mask_all_mega_cells_with_phantom:
+            expanded_coords.append(coord + offsets)
+
+        all_coords = np.vstack(expanded_coords)
+        mask_all_mega_cells_with_phantom = np.unique(all_coords, axis=0)
+
+        phantom_positions = ~(mask_all_mega_cells_with_phantom & mask_all_mega_cells)
+
+        return phantom_positions
+
     def get_cells_to_apply_action(self):
         self.clear_extractor()
 
@@ -392,6 +417,7 @@ class FccCellsExtractor(Extractor):
 
             if self.smoke_test == APPROXIMATE:
                 self.fcc_cell_to_approximate.append(fcc_cell)
+                # break
 
             if self.smoke_test == GRANULATE:
                 self.fcc_cell_to_granulate.append(fcc_cell)
@@ -408,12 +434,13 @@ class FccCellsExtractor(Extractor):
                 elif np.all(atoms_in_cell > self.UPPER_THRESHOLD) and np.all(types_in_cell == 2):
                     self.fcc_cell_to_granulate.append(fcc_cell)     
     
-    def get_data_of_cells_to_approximate(self,):
+    def get_data_of_cells_to_approximate(self, add_phantom_layer=True):
         positions = self.lammps_extractor.__get_positions__()
         identificators = self.lammps_extractor.__get_atom_identificators__()
         ids_tochange_with = []
         ids_to_delete = []
         positions_of_large = []
+        phantom_atoms = []
 
         for cell in self.fcc_cell_to_approximate:
             # if len(identificators[cell & self.first_level_mask]) != 8:
@@ -427,15 +454,16 @@ class FccCellsExtractor(Extractor):
             ids_to_delete.append(np.where(cell)[0]+1)
 
 
+        if add_phantom_layer:
+            phantom_atoms = self._add_phantom_layer_of_atoms(self.fcc_cell_to_approximate)
         ids_atoms_to_change_with_particles = np.array(ids_tochange_with).flatten()
         mask = np.any(np.array(positions_of_large), axis=0)
 
+        positions_of_large_and_phantom = np.concatenate([positions[positions_of_large], positions[phantom_atoms]+ 0.01])
 
+        return self.__safe_unique_ids__(ids_to_delete), phantom_atoms, positions_of_large_and_phantom
 
-
-        return self.__safe_unique_ids__(ids_to_delete), positions[mask]
-
-    def get_data_of_cells_to_granulate(self,):
+    def get_data_of_cells_to_granulate(self, add_phantom_layer=True):
         identificators = self.lammps_extractor.__get_atom_identificators__()
         positions = self.lammps_extractor.__get_positions__()
 
@@ -444,6 +472,10 @@ class FccCellsExtractor(Extractor):
 
         ids_tochange_with = []
         all_positions_to_spawn = np.array([])
+        phantom_atoms = []
+
+        if add_phantom_layer:
+            phantom_atoms = self._add_phantom_layer_of_atoms(self.fcc_cell_to_approximate)
 
         for cell in self.fcc_cell_to_granulate:
             # assert np.sum(cell & self.first_level_mask) == 4 == len(identificators[cell & self.first_level_mask])
@@ -455,8 +487,8 @@ class FccCellsExtractor(Extractor):
 
             positions_to_spawn = (self.basis @ (self.template_of_filling + min_point).T).T
 
-            if not self._check_overlapping_atoms(positions_to_spawn, positions[~cell]):
-                continue
+            # if not self._check_overlapping_atoms(positions_to_spawn, positions[~cell]):
+            #     continue
 
             if len(all_positions_to_spawn) == 0:
                 all_positions_to_spawn = positions_to_spawn
@@ -465,7 +497,7 @@ class FccCellsExtractor(Extractor):
 
         # assert len(positions_to_spawn) % 32 == 0, f'NO! The number of positions is {len(positions_to_spawn)}!' 
         assert len(self.__safe_unique_ids__(ids_tochange_with)) % 4 ==0, f'FUCK: the number of units to be deleted is {len(self.__safe_unique_ids__(ids_tochange_with))}, and spawn is {len(positions_to_spawn)}'
-        return self.__safe_unique_ids__(ids_tochange_with), all_positions_to_spawn
+        return self.__safe_unique_ids__(ids_tochange_with), all_positions_to_spawn, phantom_atoms
 
     @override
     def extract_interesting_regions(

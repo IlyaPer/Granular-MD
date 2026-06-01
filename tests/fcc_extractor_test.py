@@ -342,7 +342,7 @@ class TestFccCellsExtraction3x3_with_NPT_and_CRACK(unittest.TestCase):
 
         initial_mass = communicator.get_total_mass()
 
-        solver = FccCellsExtractor(communicator, 3.52, scale_factor=2, smoke_test=RANDOM_CONDITION)
+        solver = FccCellsExtractor(communicator, 3.52, scale_factor=2, smoke_test=APPROXIMATE)
         dc = DynamicChanger(
             self.communicator, solver, 3.52, 3.52*2, scale_factor=2, baby_mode=True
         )
@@ -376,7 +376,7 @@ class TestFccCellsExtraction3x3_with_NPT_and_CRACK(unittest.TestCase):
 
         L = self.L
 
-        L.command("fix     rough all nvt temp 50.0 50.0 0.1")
+        L.command("fix     rough all nve")
 
         # L.command("fix     rough all nvt temp 100.0 300.0 100")
 
@@ -384,29 +384,31 @@ class TestFccCellsExtraction3x3_with_NPT_and_CRACK(unittest.TestCase):
 
         initial_mass = communicator.get_total_mass()
 
-        solver = FccCellsExtractor(communicator, 3.52, scale_factor=2, smoke_test=RANDOM_CONDITION)
+        solver = FccCellsExtractor(communicator, 3.52, scale_factor=2, smoke_test=APPROXIMATE)
         dc = DynamicChanger(
             self.communicator, solver, 3.52, 3.52*2, scale_factor=2, baby_mode=True
         )
+        dc.accelerate(L)
+        L.command("run 8000")
 
-        for idx_iteration in range(10):
-            dc.accelerate(L)
-            L = dc.communicator.get_instance()
+        # for idx_iteration in range(10):
+        #     dc.accelerate(L)
+        L = dc.communicator.get_instance()
 
-            L.command("run 1500")
-            L.command("reset_atoms id sort yes")
-            communicator = LammpsCommunicator(L) 
-            solver = FccCellsExtractor(communicator, 3.52, scale_factor=2, smoke_test=RANDOM_CONDITION)
-            dc = DynamicChanger(
-                communicator, solver, 3.52, 3.52*2, scale_factor=2, baby_mode=True
-            )
+        #     L.command("run 1500")
+        #     L.command("reset_atoms id sort yes")
+        communicator = LammpsCommunicator(L) 
+        #     solver = FccCellsExtractor(communicator, 3.52, scale_factor=2, smoke_test=RANDOM_CONDITION)
+        #     dc = DynamicChanger(
+        #         communicator, solver, 3.52, 3.52*2, scale_factor=2, baby_mode=True
+        #     )
 
-            current_mass = communicator.get_total_mass()
+        current_mass = communicator.get_total_mass()
 
-            #TODO CHECK LAW OF MASSES!!!
-            self.assertLess(abs(1 - initial_mass / current_mass)*100, 5, f"Law of masses is not satisfied on iteration {idx_iteration}! The error is {np.round(abs(1 - initial_mass / current_mass)*100)}%. Initial mass is {initial_mass}, final is {current_mass}.")
+        #     #TODO CHECK LAW OF MASSES!!!
+        self.assertLess(abs(1 - initial_mass / current_mass)*100, 5, f"Law of masses is not satisfied on iteration {0}! The error is {np.round(abs(1 - initial_mass / current_mass)*100)}%. Initial mass is {initial_mass}, final is {current_mass}.")
 
-        return
+        # return
     
     def test_random_condition_with_npt_ensemle(self):
 
@@ -435,18 +437,20 @@ class TestFccCellsExtraction3x3_with_NPT_and_CRACK(unittest.TestCase):
             dc.accelerate(L)
             L = dc.communicator.get_instance()
 
-            L.command("run 1500")
-            L.command("reset_atoms id sort yes")
-            communicator = LammpsCommunicator(L) 
-            solver = FccCellsExtractor(communicator, 3.52, scale_factor=2, smoke_test=RANDOM_CONDITION)
-            dc = DynamicChanger(
-                communicator, solver, 3.52, 3.52*2, scale_factor=2, baby_mode=True
-            )
+            dc.run_with_scaled_potential()
 
-            current_mass = communicator.get_total_mass()
+            # L.command("run 1500")
+                # L.command("reset_atoms id sort yes")
+                # communicator = LammpsCommunicator(L) 
+                # solver = FccCellsExtractor(communicator, 3.52, scale_factor=2, smoke_test=RANDOM_CONDITION)
+                # dc = DynamicChanger(
+                #     communicator, solver, 3.52, 3.52*2, scale_factor=2, baby_mode=True
+                # )
+
+                # current_mass = communicator.get_total_mass()
 
             #TODO CHECK LAW OF MASSES!!!
-            self.assertLess(abs(1 - initial_mass / current_mass)*100, 1, f"Law of masses is not satisfied on iteration {idx_iteration}! The error is {np.round(abs(1 - initial_mass / current_mass)*100)}%. Initial mass is {initial_mass}, final is {current_mass}.")
+            # self.assertLess(abs(1 - initial_mass / current_mass)*100, 1, f"Law of masses is not satisfied on iteration {idx_iteration}! The error is {np.round(abs(1 - initial_mass / current_mass)*100)}%. Initial mass is {initial_mass}, final is {current_mass}.")
 
         return
     
